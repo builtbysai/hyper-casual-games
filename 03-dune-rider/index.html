@@ -328,9 +328,9 @@ function step(dt) {
   trail.push({ x: rider.x, y: rider.y });
   if (trail.length > 46) trail.shift();
 
-  // camera with lookahead
-  const look = clamp(rider.vx * 0.45, 0, 420);
-  cam.x += ((rider.x + look - W * 0.38) - cam.x) * Math.min(1, 5 * dt);
+  // camera with lookahead: rider stays left-of-center, never clipped
+  const look = clamp(rider.vx * 0.2, 0, 90);
+  cam.x += ((rider.x - W * 0.35 + look) - cam.x) * Math.min(1, 5 * dt);
   cam.y += ((rider.y - H * 0.42) - cam.y) * Math.min(1, 4 * dt);
 
   // distance / score (best distance counts; rolling back doesn't erase it)
@@ -499,7 +499,7 @@ function render() {
     ctx.textAlign = 'center';
     ctx.font = '600 17px ui-monospace, Menlo, monospace';
     ctx.fillStyle = `rgba(255,255,255,${pulse.toFixed(2)})`;
-    ctx.fillText(txt, rx, ry - 64);
+    ctx.fillText(txt, rx, ry - 112);
   }
 
   // particles
