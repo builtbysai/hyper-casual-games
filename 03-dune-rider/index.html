@@ -596,7 +596,7 @@ function render() {
     }
     if (runMult > 1 && state === 'play') {
       ctx.fillStyle = '#ffe14d';
-      ctx.fillText('x' + runMult, 18, 78);
+      ctx.fillText('x' + runMult, 18, best > 0 ? 94 : 78);
     }
   }
   // mute toggle
