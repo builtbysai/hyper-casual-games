@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Number Breaker</title>
+<meta name="description" content="Number Breaker — aim the volley, smash the numbered blocks. Balls of equal tier merge 2048-style mid-flight.">
+<meta name="theme-color" content="#0a0c10">
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #0a0c10; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: crosshair; }
+</style>
+</head>
+<body>
+<canvas id="g"></canvas>
+<script>
+'use strict';
+/* NUMBER BREAKER — hyper-casual #02.
+ * Model: Ballz (Ketchapp) — swipe to aim, release to launch a bouncing volley;
+ * numbered blocks descend each volley; +1 pickups grow the volley.
+ * Improve: 2048-STYLE MERGING. Balls carry tiers (1,2,4,8...). Two balls of
+ * equal tier that collide mid-flight merge into the next tier, doubling
+ * damage, with flash + ring + rising chime. Bank balls into each other.
+ * One touch (swipe). Portrait. No buttons except a tiny mute toggle.
+ */
+const cv = document.getElementById('g');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layout();
+}
+window.addEventListener('resize', resize);
+
+// ---------- audio ----------
+let AC = null, muted = false;
+function ac() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; } }
+  if (AC && AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function tone(freq, dur, type, vol, slideTo) {
+  if (muted) return;
+  const a = ac(); if (!a) return;
+  const t = a.currentTime;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(30, slideTo), t + dur);
+  g.gain.setValueAtTime(vol || 0.12, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+function noiseBurst(dur, vol, low) {
+  if (muted) return;
+  const a = ac(); if (!a) return;
+  const t = a.currentTime, n = Math.floor(a.sampleRate * dur);
+  const buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = a.createBufferSource(); src.buffer = buf;
+  const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = low || 900;
+  const g = a.createGain(); g.gain.setValueAtTime(vol || 0.2, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f); f.connect(g); g.connect(a.destination); src.start(t);
+}
+const sLaunch = () => tone(300, 0.08, 'triangle', 0.08, 520);
+const sBounce = t => tone(500 + t * 90, 0.035, 'square', 0.028);
+const sMerge = t => { const f = 440 * Math.pow(1.335, Math.min(t, 8)); tone(f, 0.16, 'sine', 0.14, f * 1.5); tone(f * 2, 0.1, 'sine', 0.05); };
+const sBreak = () => noiseBurst(0.12, 0.16, 1400);
+const sPickup = () => { tone(660, 0.07, 'sine', 0.1); setTimeout(() => tone(990, 0.09, 'sine', 0.1), 55); };
+const sWarn = () => tone(140, 0.3, 'sawtooth', 0.07, 110);
+const sOver = () => { tone(320, 0.5, 'sawtooth', 0.1, 70); };
+const sClick = () => tone(700, 0.05, 'sine', 0.07);
+function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+// ---------- layout ----------
+const COLS = 7;
+let cell = 0, gridX = 0, topY = 0, deathY = 0, launchY = 0;
+function layout() {
+  cell = W / COLS; gridX = 0;
+  topY = 84;
+  deathY = H - 190;
+  launchY = H - 120;
+}
+
+// ---------- state ----------
+const TIER_COLORS = ['#dfe9ff', '#41d9ff', '#2dffa8', '#ffd23d', '#ff8a3d', '#ff3d6e', '#c44dff', '#9d6bff'];
+const BALL_SPEED = 1000, MAX_BALLS = 120;
+let blocks = [];        // {col,row,num,max,pop,flash}
+let pickups = [];       // {col,row,taken}
+let balls = [];         // {x,y,vx,vy,tier,r,active,returned,lowT}
+let particles = [];     // {x,y,vx,vy,life,maxLife,color,size}
+let rings = [];         // {x,y,r,vr,life,maxLife,color}
+let floats = [];        // {x,y,txt,life,color,size}
+let volley = 0, ballCount = 2, score = 0;
+let best = parseInt(localStorage.getItem('nb_best') || '0', 10) || 0;
+let phase = 'aim';      // aim | flying | over
+let launcherX = 0, aimDir = null, aiming = false;
+let launchQueue = 0, launchT = 0, launched = 0;
+let launchDir = { x: 0, y: -1 };
+let firstReturnX = null, mergeCount = 0, lastProg = 0;
+let volleyT = 0, danger = false, warned = false;
+let surgeBanner = 0;
+let shake = 0;
+launcherX = 0;
+
+function tierColor(t) { return TIER_COLORS[Math.min(t, TIER_COLORS.length - 1)]; }
+function tierDamage(t) { return Math.pow(2, t); }
+
+function blockColor(b) {
+  const f = b.num / b.max;
+  if (f > 0.66) return '#f2f5f7';
+  if (f > 0.33) return '#ffb03d';
+  return '#ff4d4d';
+}
+function blockXY(b) { return { x: gridX + b.col * cell, y: topY + b.row * cell }; }
+
+function spawnRow(v) {
+  const surge = v % 10 === 0;
+  const base = 1 + Math.floor(v * 0.8);
+  let hasBlock = false, hasPickup = false;
+  const wantPickup = v % 4 === 0;
+  const pickCol = wantPickup ? (Math.random() * COLS) | 0 : -1;
+  for (let c = 0; c < COLS; c++) {
+    if (c === pickCol) { pickups.push({ col: c, row: 0, taken: false }); hasPickup = true; continue; }
+    const r = Math.random();
+    if (r < (surge ? 0.62 : 0.42)) {
+      let num = base + ((Math.random() * Math.ceil(v * 0.4 + 1)) | 0);
+      if (surge) num = Math.ceil(num * 1.6);
+      blocks.push({ col: c, row: 0, num, max: num, pop: 0, flash: 0 });
+      hasBlock = true;
+    } else if (!wantPickup && r < 0.48) {
+      pickups.push({ col: c, row: 0, taken: false }); hasPickup = true;
+    }
+  }
+  if (!hasBlock) {
+    const c = (Math.random() * COLS) | 0;
+    const num = base + 1;
+    blocks.push({ col: c, row: 0, num, max: num, pop: 0, flash: 0 });
+  }
+  if (surge) { surgeBanner = 2.2; floats.push({ x: W / 2, y: H * 0.4, txt: 'SURGE', life: 2.2, color: '#ff4d4d', size: 30 }); }
+}
+
+function reset() {
+  blocks = []; pickups = []; balls = []; particles = []; rings = []; floats = [];
+  volley = 0; ballCount = 2; score = 0;
+  phase = 'aim'; aiming = false; aimDir = null;
+  launchQueue = 0; launched = 0; volleyT = 0;
+  danger = false; warned = false; shake = 0;
+  launcherX = W / 2;
+  spawnRow(1);
+  for (const b of blocks) b.row++;
+  for (const q of pickups) q.row++;
+  spawnRow(1);
+}
+
+function startVolley(dir) {
+  volley++;
+  phase = 'flying';
+  launchDir = { x: dir.x, y: dir.y };
+  launchQueue = ballCount; launchT = 0; launched = 0;
+  firstReturnX = null;
+  volleyT = 0; warned = false; lastProg = 0;
+  balls = [];
+  for (let i = 0; i < ballCount; i++) {
+    balls.push({ x: launcherX, y: launchY, vx: 0, vy: 0, tier: 0, r: cell * 0.085,
+      active: false, returned: false, lowT: 0 });
+  }
+  sLaunch();
+}
+
+function endVolley() {
+  if (firstReturnX !== null) launcherX = Math.max(cell * 0.6, Math.min(W - cell * 0.6, firstReturnX));
+  // descend
+  for (const b of blocks) b.row++;
+  for (const p of pickups) p.row++;
+  pickups = pickups.filter(p => !p.taken && topY + p.row * cell < deathY);
+  // game over?
+  for (const b of blocks) {
+    if (topY + (b.row + 1) * cell >= deathY) { gameOver(); return; }
+  }
+  spawnRow(volley + 1);
+  // danger check
+  let minGap = 99;
+  for (const b of blocks) {
+    const gap = (deathY - (topY + (b.row + 1) * cell)) / cell;
+    if (gap < minGap) minGap = gap;
+  }
+  danger = minGap <= 2;
+  if (danger && !warned) { warned = true; sWarn(); }
+  phase = 'aim';
+}
+
+function gameOver() {
+  phase = 'over';
+  sOver(); buzz(40); shake = 14;
+  if (score > best) { best = score; localStorage.setItem('nb_best', String(best)); }
+}
+
+// ---------- physics ----------
+function stepBall(b, dt) {
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  // walls
+  if (b.x - b.r < 0) { b.x = b.r; b.vx = Math.abs(b.vx); sBounce(b.tier); }
+  else if (b.x + b.r > W) { b.x = W - b.r; b.vx = -Math.abs(b.vx); sBounce(b.tier); }
+  if (b.y - b.r < topY - 40) { b.y = topY - 40; b.vy = Math.abs(b.vy); sBounce(b.tier); }
+  // anti-stall: nudge balls rolling near-horizontal
+  if (Math.abs(b.vy) < 50) { b.lowT += dt; if (b.lowT > 2.5) { b.vy += (b.vy >= 0 ? 130 : -130) * dt * 8; b.lowT = 0; } }
+  else b.lowT = 0;
+}
+
+function collideBlocks(b) {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const bl = blocks[i];
+    const p = blockXY(bl);
+    const nx = Math.max(p.x, Math.min(b.x, p.x + cell));
+    const ny = Math.max(p.y, Math.min(b.y, p.y + cell));
+    let dx = b.x - nx, dy = b.y - ny;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= b.r * b.r) continue;
+    // hit!
+    const dmg = tierDamage(b.tier);
+    bl.num -= dmg; bl.pop = 1; bl.flash = 1; lastProg = volleyT;
+    floats.push({ x: p.x + cell / 2, y: p.y, txt: '-' + dmg, life: 0.7, color: tierColor(b.tier), size: 15 });
+    if (floats.length > 70) floats.splice(0, floats.length - 70);
+    burst(b.x, b.y, tierColor(b.tier), 5, 160);
+    sBounce(b.tier);
+    if (bl.num <= 0) {
+      blocks.splice(i, 1); score++;
+      burst(p.x + cell / 2, p.y + cell / 2, blockColor({ num: 1, max: 3 }), 16, 260);
+      sBreak();
+    }
+    // reflect on min-penetration axis
+    let d = Math.sqrt(d2);
+    if (d < 0.001) { b.vy = -b.vy; continue; }
+    dx /= d; dy /= d;
+    // push out
+    b.x = nx + dx * (b.r + 0.5); b.y = ny + dy * (b.r + 0.5);
+    const ox = Math.min(b.x - p.x, p.x + cell - b.x);
+    const oy = Math.min(b.y - p.y, p.y + cell - b.y);
+    if (ox < oy) b.vx = (dx > 0 ? Math.abs(b.vx) : -Math.abs(b.vx));
+    else b.vy = (dy > 0 ? Math.abs(b.vy) : -Math.abs(b.vy));
+    // renormalize to constant speed
+    const sp = Math.hypot(b.vx, b.vy) || 1;
+    b.vx = b.vx / sp * BALL_SPEED; b.vy = b.vy / sp * BALL_SPEED;
+    break; // one block per substep
+  }
+}
+
+function collidePickups(b) {
+  for (const p of pickups) {
+    if (p.taken) continue;
+    const cx = gridX + p.col * cell + cell / 2, cy = topY + p.row * cell + cell / 2;
+    const dx = b.x - cx, dy = b.y - cy;
+    if (dx * dx + dy * dy < (b.r + cell * 0.22) * (b.r + cell * 0.22)) {
+      p.taken = true; ballCount++;
+      floats.push({ x: cx, y: cy, txt: '+1', life: 1, color: '#2dffa8', size: 17 });
+      rings.push({ x: cx, y: cy, r: 4, vr: 160, life: 0.5, maxLife: 0.5, color: '#2dffa8' });
+      sPickup();
+    }
+  }
+}
+
+function mergeBalls() {
+  // O(n^2) same-tier merge; balls are few enough
+  for (let i = 0; i < balls.length; i++) {
+    const a = balls[i];
+    if (!a.active || a.returned) continue;
+    for (let j = i + 1; j < balls.length; j++) {
+      const c = balls[j];
+      if (!c.active || c.returned || c.tier !== a.tier) continue;
+      const dx = c.x - a.x, dy = c.y - a.y;
+      const rr = a.r + c.r + 4;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      if (balls.filter(x => x.active && !x.returned).length > MAX_BALLS) continue;
+      // merge!
+      const nt = a.tier + 1;
+      const mx = (a.x + c.x) / 2, my = (a.y + c.y) / 2;
+      let vx = a.vx + c.vx, vy = a.vy + c.vy;
+      let sp = Math.hypot(vx, vy);
+      if (sp < 1) { vx = a.vx; vy = a.vy; sp = Math.hypot(vx, vy) || 1; }
+      a.tier = nt; a.x = mx; a.y = my;
+      a.vx = vx / sp * BALL_SPEED; a.vy = vy / sp * BALL_SPEED;
+      a.r = cell * 0.085 + nt * 0.9;
+      c.returned = true; c.active = false; c.consumed = true; // merged away
+      mergeCount++;
+      rings.push({ x: mx, y: my, r: 6, vr: 320, life: 0.45, maxLife: 0.45, color: tierColor(nt) });
+      burst(mx, my, tierColor(nt), 10, 220);
+      floats.push({ x: mx, y: my - 14, txt: 'x' + tierDamage(nt), life: 0.9, color: tierColor(nt), size: 16 });
+      sMerge(nt); buzz(10); lastProg = volleyT;
+      break;
+    }
+  }
+}
+
+function burst(x, y, color, n, spd) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = spd * (0.3 + Math.random() * 0.7);
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: 0.5 + Math.random() * 0.3, maxLife: 0.8, color, size: 1.5 + Math.random() * 2.5 });
+  }
+  if (particles.length > 400) particles.splice(0, particles.length - 400);
+}
+
+function physics(dt) {
+  // launch streaming
+  if (launchQueue > 0) {
+    launchT -= dt;
+    if (launchT <= 0) {
+      const b = balls[launched];
+      if (b) {
+        b.active = true;
+        b.vx = launchDir.x * BALL_SPEED; b.vy = launchDir.y * BALL_SPEED;
+        launched++; launchQueue--; launchT = 0.075; lastProg = volleyT;
+      } else launchQueue = 0;
+    }
+  }
+  volleyT += dt;
+  let activeCount = 0;
+  for (const b of balls) {
+    if (!b.active || b.returned) continue;
+    activeCount++;
+    stepBall(b, dt);
+    collideBlocks(b);
+    collidePickups(b);
+    if (b.y - b.r > launchY + 40) {
+      b.returned = true; b.active = false;
+      if (!b.consumed && firstReturnX === null) firstReturnX = b.x;
+      lastProg = volleyT;
+    }
+  }
+  mergeBalls();
+  // volley end: everything launched and everything resolved
+  const resolved = balls.filter(x => x.returned).length;
+  if (launchQueue === 0 && resolved === balls.length && balls.length > 0) {
+    endVolley();
+  }
+  // failsafe: hard cap + stagnation (no progress for 9s after streaming)
+  if (phase === 'flying' && launchQueue === 0) {
+    if (volleyT > 60 || volleyT - lastProg > 9) {
+      for (const b of balls) if (b.active && !b.returned) { b.returned = true; b.active = false; }
+      endVolley();
+    }
+  }
+}
+
+// ---------- input ----------
+const muteBox = { x: 0, y: 0, w: 64, h: 34 };
+let pDown = null, pMoved = false;
+function canvasPos(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+cv.addEventListener('pointerdown', e => {
+  ac();
+  const p = canvasPos(e);
+  if (p.x > muteBox.x && p.x < muteBox.x + muteBox.w && p.y > muteBox.y && p.y < muteBox.y + muteBox.h) {
+    muted = !muted; sClick(); return;
+  }
+  if (phase === 'over') { sClick(); reset(); return; }
+  if (phase !== 'aim') return;
+  pDown = p; pMoved = false; aiming = true;
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => {
+  if (!pDown || !aiming) return;
+  const p = canvasPos(e);
+  if (Math.hypot(p.x - pDown.x, p.y - pDown.y) > 8) pMoved = true;
+  updateAim(p);
+});
+cv.addEventListener('pointerup', e => {
+  if (!pDown) return;
+  const wasAiming = aiming;
+  aiming = false; pDown = null;
+  if (phase === 'aim' && wasAiming && aimDir) {
+    startVolley(aimDir);
+  }
+  aimDir = null;
+});
+cv.addEventListener('pointercancel', () => { aiming = false; pDown = null; aimDir = null; });
+
+function updateAim(p) {
+  let dx = p.x - launcherX, dy = p.y - launchY;
+  if (dy > -12) dy = -12; // keep it upward
+  const d = Math.hypot(dx, dy) || 1;
+  aimDir = { x: dx / d, y: dy / d };
+}
+
+// aim preview with wall bounces
+function aimPath() {
+  if (!aimDir) return [];
+  const pts = [];
+  let x = launcherX, y = launchY, dx = aimDir.x, dy = aimDir.y;
+  for (let i = 0; i < 24; i++) {
+    x += dx * 26; y += dy * 26;
+    if (x < 6) { x = 6; dx = Math.abs(dx); }
+    if (x > W - 6) { x = W - 6; dx = -Math.abs(dx); }
+    if (y < topY - 40) { y = topY - 40; dy = Math.abs(dy); }
+    if (y > deathY && i > 2) break; // launcher sits below the line; only stop on return
+    pts.push([x, y]);
+  }
+  return pts;
+}
+
+// ---------- draw ----------
+function drawGrid() {
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let c = 1; c < COLS; c++) { ctx.moveTo(c * cell, topY - 46); ctx.lineTo(c * cell, deathY); }
+  const rows = Math.floor((deathY - topY) / cell);
+  for (let r = 0; r <= rows; r++) { ctx.moveTo(0, topY + r * cell); ctx.lineTo(W, topY + r * cell); }
+  ctx.stroke();
+}
+function drawDeathLine(t) {
+  const pulse = danger ? (0.55 + 0.45 * Math.sin(t * 6)) : 0.8;
+  ctx.strokeStyle = `rgba(255,77,77,${0.35 * pulse + 0.25})`;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath(); ctx.moveTo(0, deathY); ctx.lineTo(W, deathY); ctx.stroke();
+  ctx.setLineDash([]);
+}
+function drawBlocks(t) {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  let killRow = -1;
+  for (const b of blocks) if (b.row > killRow) killRow = b.row;
+  for (const b of blocks) {
+    const p = blockXY(b);
+    const col = blockColor(b);
+    b.pop = Math.max(0, b.pop - 0.06); b.flash = Math.max(0, b.flash - 0.08);
+    const popS = 1 + b.pop * 0.12;
+    const cx = p.x + cell / 2, cy = p.y + cell / 2;
+    const w = cell * 0.94 * popS, h = cell * 0.94 * popS;
+    // danger: flash the lowest row
+    let alpha = 1;
+    if (danger && b.row === killRow) alpha = 0.55 + 0.45 * Math.sin(t * 8);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = col + '14';
+    ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+    ctx.strokeStyle = col + (b.flash > 0 ? 'ff' : '66');
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
+    ctx.fillStyle = col;
+    const fs = Math.min(30, cell * 0.42);
+    ctx.font = `500 ${fs}px ui-monospace, Menlo, Consolas, monospace`;
+    ctx.fillText(String(b.num), cx, cy + 1);
+    ctx.globalAlpha = 1;
+  }
+  // pickups
+  for (const p of pickups) {
+    if (p.taken) continue;
+    const cx = gridX + p.col * cell + cell / 2, cy = topY + p.row * cell + cell / 2;
+    const r = cell * 0.2 + Math.sin(t * 4 + p.col) * 1.5;
+    ctx.strokeStyle = '#2dffa8'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#2dffa8';
+    ctx.font = `600 ${Math.min(18, cell * 0.28)}px ui-monospace, monospace`;
+    ctx.fillText('+1', cx, cy + 0.5);
+  }
+}
+function drawBalls() {
+  for (const b of balls) {
+    if (!b.active || b.returned) continue;
+    const c = tierColor(b.tier);
+    ctx.save();
+    ctx.shadowColor = c; ctx.shadowBlur = 12 + b.tier * 3;
+    ctx.fillStyle = c;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    if (b.tier > 0) {
+      ctx.fillStyle = '#0a0c10';
+      ctx.font = `700 ${Math.max(9, b.r * 1.1)}px ui-monospace, monospace`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(tierDamage(b.tier)), b.x, b.y + 0.5);
+    }
+  }
+}
+function drawLauncher(t) {
+  // chevron
+  ctx.strokeStyle = '#f2f5f7'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  const bob = phase === 'aim' ? Math.sin(t * 3) * 2 : 0;
+  ctx.beginPath();
+  ctx.moveTo(launcherX - 9, launchY + 8 + bob);
+  ctx.lineTo(launcherX, launchY - 2 + bob);
+  ctx.lineTo(launcherX + 9, launchY + 8 + bob);
+  ctx.stroke();
+  // volley counter
+  ctx.fillStyle = 'rgba(242,245,247,0.55)';
+  ctx.font = '500 13px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('x' + ballCount, launcherX, launchY + 30);
+  // aim preview
+  if (aiming && aimDir && phase === 'aim') {
+    const pts = aimPath();
+    ctx.fillStyle = 'rgba(242,245,247,0.75)';
+    for (let i = 0; i < pts.length; i++) {
+      const s = 3.2 * (1 - i / (pts.length + 6));
+      ctx.beginPath(); ctx.arc(pts[i][0], pts[i][1], s, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+function drawHUD(t) {
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgba(242,245,247,0.85)';
+  ctx.font = '600 15px ui-monospace, monospace';
+  ctx.fillText('SCORE ' + score, 14, 32);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(242,245,247,0.4)';
+  ctx.fillText('BEST ' + best, W - 84, 32);
+  // mute toggle
+  muteBox.x = W - 70; muteBox.y = 10;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = muted ? 'rgba(242,245,247,0.3)' : 'rgba(242,245,247,0.75)';
+  ctx.font = '600 11px ui-monospace, monospace';
+  ctx.fillText(muted ? 'MUTED' : 'SOUND', W - 38, 32);
+  // volley
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(242,245,247,0.35)';
+  ctx.font = '500 12px ui-monospace, monospace';
+  ctx.fillText('VOLLEY ' + Math.max(1, volley), 14, 54);
+  if (phase === 'aim' && volley === 0) {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(242,245,247,0.5)';
+    ctx.font = '500 14px ui-monospace, monospace';
+    ctx.fillText('drag to aim — release to launch', W / 2, H * 0.52);
+    ctx.fillStyle = 'rgba(65,217,255,0.5)';
+    ctx.fillText('equal balls merge mid-flight', W / 2, H * 0.52 + 24);
+  }
+}
+function drawFx(dt, t) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt; if (p.life <= 0) { particles.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.vy *= 0.98;
+    ctx.globalAlpha = p.life / p.maxLife;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i];
+    r.life -= dt; if (r.life <= 0) { rings.splice(i, 1); continue; }
+    r.r += r.vr * dt;
+    ctx.globalAlpha = r.life / r.maxLife;
+    ctx.strokeStyle = r.color; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'center';
+  for (let i = floats.length - 1; i >= 0; i--) {
+    const f = floats[i];
+    f.life -= dt; if (f.life <= 0) { floats.splice(i, 1); continue; }
+    f.y -= 34 * dt;
+    ctx.globalAlpha = Math.min(1, f.life * 2);
+    ctx.fillStyle = f.color;
+    ctx.font = `700 ${f.size}px ui-monospace, monospace`;
+    ctx.fillText(f.txt, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+  // danger edge pulse
+  if (danger && phase !== 'over') {
+    const a = 0.15 + 0.11 * Math.sin(t * 6);
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.36, W / 2, H / 2, Math.max(W, H) * 0.72);
+    g.addColorStop(0, 'rgba(255,40,40,0)');
+    g.addColorStop(1, `rgba(255,40,40,${a})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (shake > 0) { shake *= 0.88; if (shake < 0.4) shake = 0; }
+}
+function drawOver() {
+  ctx.fillStyle = 'rgba(5,6,8,0.78)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#f2f5f7';
+  ctx.font = '700 34px ui-monospace, monospace';
+  ctx.fillText('GAME OVER', W / 2, H * 0.40);
+  ctx.fillStyle = 'rgba(242,245,247,0.6)';
+  ctx.font = '500 16px ui-monospace, monospace';
+  ctx.fillText('SCORE ' + score, W / 2, H * 0.40 + 44);
+  ctx.fillStyle = score >= best && score > 0 ? '#ffd23d' : 'rgba(242,245,247,0.6)';
+  ctx.fillText('BEST ' + best, W / 2, H * 0.40 + 70);
+  ctx.fillStyle = 'rgba(242,245,247,0.45)';
+  ctx.font = '500 13px ui-monospace, monospace';
+  ctx.fillText('tap to play again', W / 2, H * 0.40 + 112);
+}
+
+// ---------- main loop ----------
+let last = performance.now(), acc = 0;
+const STEP = 1 / 120;
+function frame(now) {
+  let dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  const t = now / 1000;
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  ctx.fillStyle = '#0a0c10';
+  ctx.fillRect(-20, -20, W + 40, H + 40);
+  if (phase === 'flying') {
+    acc += dt;
+    let n = 0;
+    while (acc >= STEP && n < 8) { physics(STEP); acc -= STEP; n++; if (phase !== 'flying') { acc = 0; break; } }
+  } else {
+    // still animate fx
+    surgeBanner = Math.max(0, surgeBanner - dt);
+  }
+  drawGrid();
+  drawBlocks(dt);
+  drawBalls();
+  drawDeathLine(t);
+  drawLauncher(t);
+  drawFx(dt, t);
+  drawHUD(t);
+  if (phase === 'over') drawOver();
+  ctx.restore();
+  requestAnimationFrame(frame);
+}
+
+// debug/testing hooks (harmless in production)
+window.NB = {
+  get phase() { return phase; },
+  get volley() { return volley; },
+  get score() { return score; },
+  get balls() { return balls.filter(b => b.active && !b.returned).length; },
+  get blocks() { return blocks.length; },
+  stats: { merges: 0 },
+  get merges() { return mergeCount; },
+  launchAt(dx, dy) {
+    const d = Math.hypot(dx, dy) || 1;
+    startVolley({ x: dx / d, y: dy / d });
+  },
+  testMerge() {
+    // two tier-0 balls on collision course: verifies the merge path
+    const y = (topY + deathY) / 2, x = W / 2;
+    balls.push({ x: x - 30, y, vx: 300, vy: 0, tier: 0, r: cell * 0.085, active: true, returned: false, lowT: 0 });
+    balls.push({ x: x + 30, y, vx: -300, vy: 0, tier: 0, r: cell * 0.085, active: true, returned: false, lowT: 0 });
+    if (phase === 'aim') { phase = 'flying'; launchQueue = 0; volleyT = 0; }
+  },
+  forceDanger() {
+    for (const b of blocks) b.row = Math.max(b.row, Math.floor((deathY - topY) / cell) - 1);
+    let minGap = 99;
+    for (const b of blocks) {
+      const gap = (deathY - (topY + (b.row + 1) * cell)) / cell;
+      if (gap < minGap) minGap = gap;
+    }
+    danger = minGap <= 2;
+  }
+};
+resize();
+reset();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
