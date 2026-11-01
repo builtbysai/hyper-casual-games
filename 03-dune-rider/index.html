@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b1e">
+<title>Dune Rider</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#0b0b1e;
+    overscroll-behavior:none; -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color: transparent; }
+  canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+/* DUNE RIDER — hyper-casual #03.
+ * MODEL: Tiny Wings. Hold to dive and pump the dune face, release to fly.
+ * IMPROVE: near-miss multiplier (graze a crest = CLOSE! x2 x3...) and
+ * perfect downslope landings keep all speed; sloppy landings bleed it.
+ * One touch. Portrait. No menus — tap to start, tap to ride again.
+ */
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- utils ----------
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function hexLerp(h1, h2, t) {
+  const a = parseInt(h1.slice(1), 16), b = parseInt(h2.slice(1), 16);
+  const r = Math.round(lerp((a >> 16) & 255, (b >> 16) & 255, t));
+  const g = Math.round(lerp((a >> 8) & 255, (b >> 8) & 255, t));
+  const bl = Math.round(lerp(a & 255, b & 255, t));
+  return `rgb(${r},${g},${bl})`;
+}
+function buzz(ms) {
+  try { if (typeof navigator.vibrate === 'function') navigator.vibrate(ms); } catch (e) {}
+}
+
+// ---------- audio ----------
+let AC = null, windGain = null, windFilter = null, muted = false;
+function initAudio() {
+  if (AC) return;
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    const len = AC.sampleRate * 2;
+    const buf = AC.createBuffer(1, len, AC.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = AC.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    windFilter = AC.createBiquadFilter();
+    windFilter.type = 'lowpass'; windFilter.frequency.value = 300;
+    windGain = AC.createGain(); windGain.gain.value = 0;
+    src.connect(windFilter).connect(windGain).connect(AC.destination);
+    src.start();
+  } catch (e) { AC = null; }
+}
+function tone(freq, dur, type, vol, when, slideTo) {
+  if (!AC || muted) return;
+  try {
+    const t0 = AC.currentTime + (when || 0);
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t0);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol || 0.2, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(AC.destination);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  } catch (e) {}
+}
+const sfx = {
+  perfect(combo) { tone(660 * Math.pow(1.059, Math.min(combo, 12)), 0.28, 'sine', 0.22); tone(990 * Math.pow(1.059, Math.min(combo, 12)), 0.34, 'sine', 0.14, 0.07); },
+  close() { tone(1900, 0.07, 'square', 0.07); },
+  sloppy() { tone(160, 0.18, 'triangle', 0.16, 0, 90); },
+  dive() {
+    if (!AC || muted) return;
+    try {
+      const t0 = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(300, t0);
+      o.frequency.exponentialRampToValueAtTime(80, t0 + 0.25);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.08, t0 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
+      o.connect(g).connect(AC.destination); o.start(t0); o.stop(t0 + 0.35);
+    } catch (e) {}
+  },
+  milestone() { tone(392, 0.5, 'triangle', 0.12); tone(523, 0.6, 'triangle', 0.1, 0.12); tone(659, 0.8, 'triangle', 0.1, 0.24); }
+};
+
+// ---------- run state ----------
+let runSeed = 1, rng = mulberry32(1);
+let P = {};                 // dune phase params per layer
+let state = 'ready';        // ready | play | over
+let holding = false;
+let rider, cam, trail, parts, floats, banner;
+let dist, bestMult, runMult, wasHigh, lastCloseT, elapsed;
+let stallT = 0, stallWarned = false;
+let nextMilestone, overScore, newBest;
+let best = 0;
+try { best = parseInt(localStorage.getItem('drider_best') || '0', 10) || 0; } catch (e) {}
+
+const G = 2300, RIDER_R = 7;
+
+function newRun() {
+  runSeed = (Math.random() * 1e9) | 0;
+  rng = mulberry32(runSeed);
+  P = [];
+  for (let L = 0; L < 3; L++) {
+    P.push({ p1: rng() * 6.28, p2: rng() * 6.28, p3: rng() * 6.28,
+             q1: rng() * 6.28, q3: rng() * 6.28, q4: rng() * 6.28 });
+  }
+  // start on a LONG confirmed downhill so the rider always gets rolling
+  let sx = 0;
+  for (let x = 0; x < 4000 && !sx; x += 10) {
+    let ok = true;
+    for (let xx = x; xx < x + 250; xx += 25) if (duneSlope(xx) < 0.3) { ok = false; break; }
+    if (ok) sx = x;
+  }
+  if (!sx) for (let x = 0; x < 600; x += 8) { if (duneSlope(x) > 0.35) { sx = x; break; } }
+  const y0 = duneY(sx, 0);
+  rider = { x: sx, y: y0 - RIDER_R - 1, vx: 520, vy: 0, air: false, vt: 520, grace: 0 };
+  cam = { x: sx - W * 0.3, y: y0 - H * 0.45 };
+  trail = []; parts = []; floats = []; banner = null;
+  dist = 0; bestMult = 1; runMult = 1; wasHigh = true; lastCloseT = -9; elapsed = 0;
+  nextMilestone = 500; overScore = 0; newBest = false; stallT = 0; stallWarned = false;
+}
+
+// dunes: pure function of x. layer 0 = rideable, 1/2 = parallax decor.
+// Pure sine hills: mathematically trap-free (a holding rider ALWAYS gains
+// energy per oscillation, so it can never get stuck). Texture is visual only.
+// Curvature sets launch speed: v^2 * kappa > G.
+function duneY(x, layer) {
+  const s = P[layer];
+  const d = clamp(x / 26000, 0, 1);            // difficulty 0..1
+  const amp = 1 + 0.75 * d, frq = 1 + 0.35 * d;
+  let y = 0;
+  y += 62 * amp * Math.sin(x * 0.009 * frq + s.p1);
+  y += 5 * Math.sin(x * 0.035 * frq + s.p3);   // texture only, too small to trap
+  y *= 0.75 + 0.25 * Math.sin(x * 0.0001 + s.q4);
+  return y;
+}
+function duneSlope(x) {
+  return (duneY(x + 3, 0) - duneY(x - 3, 0)) / 6;
+}
+function duneCurve(x) {
+  return (duneY(x + 4, 0) - 2 * duneY(x, 0) + duneY(x - 4, 0)) / 16;
+}
+
+// ---------- night palettes (wonder: the sky travels as you ride) ----------
+const NIGHT = [
+  { top: '#0b0b1e', bot: '#1b1440', ridge: '#3d2b7a', glow: '#7ee7ff', dune: '#141433' },
+  { top: '#120a24', bot: '#2a1248', ridge: '#5b2b8f', glow: '#c77dff', dune: '#181638' },
+  { top: '#06222b', bot: '#0d3a44', ridge: '#1f6f7a', glow: '#8affda', dune: '#0e2230' },
+  { top: '#1c0e14', bot: '#3d1a26', ridge: '#7a3040', glow: '#ffb3c1', dune: '#1d1420' }
+];
+function nightPal() {
+  const t = ((dist / 4200) % 1 + 1) % 1 * NIGHT.length;
+  const i = Math.floor(t) % NIGHT.length, j = (i + 1) % NIGHT.length, f = t - Math.floor(t);
+  const A = NIGHT[i], B = NIGHT[j];
+  return {
+    top: hexLerp(A.top, B.top, f), bot: hexLerp(A.bot, B.bot, f),
+    ridge: hexLerp(A.ridge, B.ridge, f), glow: hexLerp(A.glow, B.glow, f),
+    dune: hexLerp(A.dune, B.dune, f)
+  };
+}
+
+// stars (world-anchored, wrap endlessly)
+const STARS = [];
+{
+  const r = mulberry32(12345);
+  for (let i = 0; i < 150; i++) {
+    STARS.push({ x: r() * 6000, y: -1400 + r() * 1500, s: 0.6 + r() * 1.7, tw: r() * 6.28 });
+  }
+}
+
+// ---------- effects ----------
+function addFloat(x, y, txt, color, size) {
+  floats.push({ x, y, txt, color, size: size || 26, life: 1.1, max: 1.1 });
+}
+function dust(x, y, n, spread) {
+  for (let i = 0; i < n; i++) {
+    parts.push({ x, y, vx: (Math.random() - 0.7) * spread, vy: -Math.random() * spread * 0.7,
+                 life: 0.5 + Math.random() * 0.5, max: 1, r: 2 + Math.random() * 3 });
+  }
+}
+function ring(x, y, color) {
+  parts.push({ ring: true, x, y, r: 6, life: 0.55, max: 0.55, color });
+}
+
+// ---------- physics step ----------
+function step(dt) {
+  elapsed += dt;
+  const d = clamp(rider.x / 26000, 0, 1);
+  const sub = 2;
+  for (let k = 0; k < sub; k++) {
+    const h = dt / sub;
+    if (rider.grace > 0) rider.grace -= h;
+    if (!rider.air) {
+      // ---- on the surface: slide along the tangent ----
+      const s = duneSlope(rider.x);
+      const inv = 1 / Math.hypot(1, s);
+      rider.vt += G * s * inv * h;                        // gravity along slope
+      if (holding) rider.vt += 1800 * Math.max(0, s) * h;  // pump the downslope
+      rider.vt *= (1 - (0.10 + rider.vt * 0.00012) * h);  // rolling + air drag
+      rider.vt = clamp(rider.vt, -220, 4000);   // may roll back down a hill
+      const tx = inv, ty = s * inv;
+      // launch check: a crest can only hold you if gravity beats v^2 * curvature.
+      // holding = heavy: needs much more speed to leave the ground.
+      const curve = duneCurve(rider.x);
+      const kappa = Math.max(0, curve) / Math.pow(1 + s * s, 1.5);
+      const Geff = holding ? G * 1.9 : G;
+      if (rider.grace <= 0 && rider.vt > 0 && rider.vt * rider.vt * kappa > Geff) {
+        rider.air = true;
+        rider.grace = 0.12;
+        rider.vx = tx * rider.vt; rider.vy = ty * rider.vt;
+      } else {
+        const vx0 = tx * rider.vt, vy0 = ty * rider.vt;
+        const nx = rider.x + vx0 * h;
+        rider.x = nx;
+        rider.y = duneY(nx, 0) - RIDER_R;
+        rider.vx = vx0; rider.vy = vy0;
+      }
+    } else {
+      // ---- airborne ----
+      const grav = holding ? G * 2.1 : G;                 // hold = dive heavy
+      rider.vy += grav * h;
+      rider.vx *= (1 - 0.02 * h);
+      rider.x += rider.vx * h;
+      rider.y += rider.vy * h;
+      const surf = duneY(rider.x, 0);
+      if (rider.grace <= 0 && rider.y + RIDER_R >= surf && rider.vy > 0) {
+        // touchdown
+        const s = duneSlope(rider.x);
+        const spd = Math.hypot(rider.vx, rider.vy);
+        rider.grace = 0.08;
+        if (holding) {
+          // pump straight through the landing
+          const inv = 1 / Math.hypot(1, s);
+          rider.air = false;
+          rider.vt = (rider.vx * inv + rider.vy * s * inv) * 0.95;
+          rider.y = surf - RIDER_R;
+          dust(rider.x, surf, 6, 160);
+        } else {
+          const angV = Math.atan2(rider.vy, rider.vx);
+          const angS = Math.atan2(s, 1);
+          const da = Math.abs(angV - angS);
+          const perfectMin = 0.28 + 0.30 * d;
+          if (s > perfectMin && da < 0.45) {
+            // PERFECT — keep it all
+            rider.air = false;
+            rider.vt = spd;
+            rider.y = surf - RIDER_R;
+            sfx.perfect(runMult); buzz(20);
+            ring(rider.x, surf, '#ffffff');
+            addFloat(rider.x, surf - 46, 'PERFECT', '#ffffff', 24);
+            dust(rider.x, surf, 10, 220);
+          } else {
+            // SLOPPY — visibly the player's mistiming
+            rider.air = false;
+            rider.vt = spd * 0.5;
+            rider.y = surf - RIDER_R;
+            runMult = 1;
+            sfx.sloppy();
+            addFloat(rider.x, surf - 46, 'SLOPPY', '#8a8aa3', 22);
+            dust(rider.x, surf, 8, 180);
+          }
+        }
+      } else {
+        // near-miss: grazing a crest at speed while flying
+        const clear = surf - (rider.y + RIDER_R);
+        const spd = Math.hypot(rider.vx, rider.vy);
+        if (clear > 70) wasHigh = true;
+        if (wasHigh && clear > 2 && clear < 34 && spd > 480 && elapsed - lastCloseT > 1.2) {
+          wasHigh = false; lastCloseT = elapsed;
+          runMult++;
+          if (runMult > bestMult) bestMult = runMult;
+          sfx.close(); buzz(10);
+          addFloat(rider.x, rider.y - 30, 'CLOSE! x' + runMult, '#ffe14d', 30);
+        }
+      }
+    }
+  }
+  if (!isFinite(rider.x) || !isFinite(rider.y) || !isFinite(rider.vt)) return gameOver();
+
+  // out of steam: speed truly gone for a full second (a stall you earned).
+  // rolling back down a hill recovers, so only a dead stop kills.
+  if (Math.abs(rider.vt) < 20 && !rider.air && elapsed > 2.0) {
+    stallT += dt;
+    if (!stallWarned && stallT > 0.25) {
+      stallWarned = true;
+      addFloat(rider.x, rider.y - 44, 'LOSING STEAM', '#ff7a7a', 20);
+    }
+    if (stallT > 1.0) return gameOver();
+  } else {
+    stallT = 0; stallWarned = false;
+  }
+
+  // trail
+  trail.push({ x: rider.x, y: rider.y });
+  if (trail.length > 46) trail.shift();
+
+  // camera with lookahead
+  const look = clamp(rider.vx * 0.45, 0, 420);
+  cam.x += ((rider.x + look - W * 0.38) - cam.x) * Math.min(1, 5 * dt);
+  cam.y += ((rider.y - H * 0.42) - cam.y) * Math.min(1, 4 * dt);
+
+  // distance / score (best distance counts; rolling back doesn't erase it)
+  dist = Math.max(dist, rider.x / 48);
+  if (dist >= nextMilestone) {
+    banner = { txt: nextMilestone + 'm', life: 1.6, max: 1.6 };
+    sfx.milestone();
+    nextMilestone += 500;
+  }
+
+  // fx update
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.life -= dt;
+    if (p.life <= 0) { parts.splice(i, 1); continue; }
+    if (p.ring) { p.r += 260 * dt; continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 500 * dt;
+  }
+  for (let i = floats.length - 1; i >= 0; i--) {
+    const f = floats[i];
+    f.life -= dt; f.y -= 44 * dt;
+    if (f.life <= 0) floats.splice(i, 1);
+  }
+  if (banner) { banner.life -= dt; if (banner.life <= 0) banner = null; }
+
+  // wind audio follows speed
+  if (AC && windGain) {
+    const spd = Math.hypot(rider.vx, rider.vy);
+    const t2 = clamp(spd / 1600, 0, 1);
+    const g = muted ? 0 : 0.02 + t2 * 0.16;
+    windGain.gain.setTargetAtTime(g, AC.currentTime, 0.1);
+    windFilter.frequency.setTargetAtTime(250 + t2 * 2400, AC.currentTime, 0.1);
+  }
+}
+
+function gameOver() {
+  state = 'over';
+  overScore = Math.floor(dist * bestMult);
+  newBest = overScore > best;
+  if (newBest) {
+    best = overScore;
+    try { localStorage.setItem('drider_best', String(best)); } catch (e) {}
+  }
+  if (AC && windGain) windGain.gain.setTargetAtTime(0, AC.currentTime, 0.2);
+}
+
+// ---------- render ----------
+function render() {
+  const pal = nightPal();
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, pal.top); g.addColorStop(1, pal.bot);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // stars
+  const t = elapsed;
+  for (const st of STARS) {
+    let sx = (st.x - cam.x * 0.22) % 6000; if (sx < 0) sx += 6000;
+    sx = sx / 6000 * (W + 400) - 200;
+    const sy = st.y - cam.y * 0.22;
+    if (sx < -10 || sx > W + 10 || sy < -10 || sy > H + 10) continue;
+    const a = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(t * 2 + st.tw));
+    ctx.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
+    ctx.fillRect(sx, sy, st.s, st.s);
+  }
+
+  // moon
+  const mx = W * 0.8 - cam.x * 0.02 % 60, my = H * 0.18;
+  const mg = ctx.createRadialGradient(mx, my, 4, mx, my, 90);
+  mg.addColorStop(0, 'rgba(240,240,255,0.9)');
+  mg.addColorStop(0.25, 'rgba(220,220,255,0.28)');
+  mg.addColorStop(1, 'rgba(220,220,255,0)');
+  ctx.fillStyle = mg;
+  ctx.beginPath(); ctx.arc(mx, my, 90, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#f2f2ff';
+  ctx.beginPath(); ctx.arc(mx, my, 26, 0, 6.29); ctx.fill();
+
+  // dune layers, far -> near
+  const layers = [
+    { p: 0.3, yo: -H * 0.16, dim: true },
+    { p: 0.55, yo: -H * 0.07, dim: true },
+    { p: 1.0, yo: 0, dim: false }
+  ];
+  layers.forEach((L, li) => {
+    ctx.beginPath();
+    const stepX = 7;
+    for (let sx = -10; sx <= W + 10; sx += stepX) {
+      const wx = cam.x * L.p + sx;
+      const wy = duneY(wx, li) * L.p + L.yo - cam.y * L.p + (1 - L.p) * H * 0.1;
+      if (sx === -10) ctx.moveTo(sx, wy); else ctx.lineTo(sx, wy);
+    }
+    ctx.lineTo(W + 10, H + 10); ctx.lineTo(-10, H + 10); ctx.closePath();
+    if (L.dim) {
+      ctx.fillStyle = 'rgba(10,10,28,0.55)';
+      ctx.fill();
+    } else {
+      ctx.fillStyle = pal.dune;
+      ctx.fill();
+      // luminous ridgeline
+      ctx.beginPath();
+      for (let sx = -10; sx <= W + 10; sx += stepX) {
+        const wx = cam.x + sx;
+        const wy = duneY(wx, 0) - cam.y;
+        if (sx === -10) ctx.moveTo(sx, wy); else ctx.lineTo(sx, wy);
+      }
+      ctx.strokeStyle = pal.glow; ctx.globalAlpha = 0.28; ctx.lineWidth = 7; ctx.stroke();
+      ctx.globalAlpha = 1; ctx.lineWidth = 2; ctx.stroke();
+      // faint ridge echo below
+      ctx.strokeStyle = pal.ridge; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let sx = -10; sx <= W + 10; sx += stepX) {
+        const wx = cam.x + sx;
+        const wy = duneY(wx, 0) - cam.y + 26;
+        if (sx === -10) ctx.moveTo(sx, wy); else ctx.lineTo(sx, wy);
+      }
+      ctx.stroke(); ctx.globalAlpha = 1;
+    }
+  });
+
+  const rx = rider.x - cam.x, ry = rider.y - cam.y;
+
+  // speed lines
+  const spd = Math.hypot(rider.vx, rider.vy);
+  if (state === 'play' && spd > 950) {
+    const n = Math.min(14, ((spd - 950) / 60) | 0);
+    ctx.strokeStyle = 'rgba(255,255,255,0.20)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < n; i++) {
+      const ly = ry + (Math.random() - 0.5) * H * 0.5;
+      const lx = rx + (Math.random() - 0.5) * W * 0.7;
+      const len = 40 + Math.random() * 90;
+      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx - len, ly); ctx.stroke();
+    }
+  }
+
+  // comet trail
+  if (trail.length > 1) {
+    for (let i = 1; i < trail.length; i++) {
+      const f = i / trail.length;
+      ctx.strokeStyle = `rgba(140,240,255,${(f * 0.55).toFixed(2)})`;
+      ctx.lineWidth = 1 + f * 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(trail[i - 1].x - cam.x, trail[i - 1].y - cam.y);
+      ctx.lineTo(trail[i].x - cam.x, trail[i].y - cam.y);
+      ctx.stroke();
+    }
+  }
+
+  // rider: bright comet dot
+  const rg = ctx.createRadialGradient(rx, ry, 1, rx, ry, 26);
+  rg.addColorStop(0, 'rgba(255,255,255,1)');
+  rg.addColorStop(0.3, 'rgba(180,245,255,0.85)');
+  rg.addColorStop(1, 'rgba(120,200,255,0)');
+  ctx.fillStyle = rg;
+  ctx.beginPath(); ctx.arc(rx, ry, 26, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(rx, ry, RIDER_R, 0, 6.29); ctx.fill();
+
+  // particles
+  for (const p of parts) {
+    const a = clamp(p.life / p.max, 0, 1);
+    if (p.ring) {
+      ctx.strokeStyle = p.color; ctx.globalAlpha = a; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x - cam.x, p.y - cam.y, p.r, 0, 6.29); ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = `rgba(200,230,255,${(a * 0.7).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(p.x - cam.x, p.y - cam.y, p.r * a + 0.5, 0, 6.29); ctx.fill();
+    }
+  }
+
+  // floating texts
+  ctx.textAlign = 'center';
+  for (const f of floats) {
+    const a = clamp(f.life / f.max, 0, 1);
+    ctx.globalAlpha = a;
+    ctx.font = `300 ${f.size}px ui-monospace, Menlo, monospace`;
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.txt, f.x - cam.x, f.y - cam.y);
+  }
+  ctx.globalAlpha = 1;
+
+  // milestone banner
+  if (banner) {
+    const a = clamp(banner.life / banner.max, 0, 1);
+    ctx.globalAlpha = Math.min(1, a * 2);
+    ctx.font = `200 ${Math.min(64, W * 0.11)}px ui-monospace, Menlo, monospace`;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(banner.txt, W / 2, H * 0.3);
+    ctx.globalAlpha = 1;
+  }
+
+  // HUD: thin mono
+  ctx.textAlign = 'left';
+  ctx.font = `300 ${Math.round(Math.min(30, W * 0.055))}px ui-monospace, Menlo, monospace`;
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  if (state === 'play' || state === 'over') {
+    ctx.fillText(Math.floor(dist) + 'm', 18, 44);
+    if (runMult > 1 && state === 'play') {
+      ctx.fillStyle = '#ffe14d';
+      ctx.fillText('x' + runMult, 18, 78);
+    }
+  }
+  // mute toggle
+  ctx.textAlign = 'right';
+  ctx.font = '300 13px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.fillText(muted ? 'SOUND OFF' : 'SOUND ON', W - 16, 30);
+  ctx.textAlign = 'left';
+
+  // speed gauge: whisper-thin, flashes red when stalling
+  if (state === 'play') {
+    const f = clamp(spd / 1700, 0, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillRect(0, H - 3, W, 3);
+    if (stallT > 0 && Math.sin(elapsed * 14) > 0) ctx.fillStyle = '#ff5a5a';
+    else ctx.fillStyle = f > 0.75 ? '#ff7ad9' : '#7ee7ff';
+    ctx.fillRect(0, H - 3, W * f, 3);
+  }
+
+  // overlays
+  if (state === 'ready') {
+    ctx.fillStyle = 'rgba(5,5,16,0.45)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `200 ${Math.min(58, W * 0.1)}px ui-monospace, Menlo, monospace`;
+    ctx.fillText('DUNE RIDER', W / 2, H * 0.36);
+    ctx.font = '300 15px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillText('HOLD TO DIVE · RELEASE TO FLY', W / 2, H * 0.36 + 44);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('graze a crest for CLOSE!', W / 2, H * 0.36 + 70);
+    ctx.fillText('land the downslope clean for PERFECT', W / 2, H * 0.36 + 90);
+    if (best > 0) {
+      ctx.fillStyle = '#ffe14d';
+      ctx.fillText('BEST ' + best, W / 2, H * 0.36 + 120);
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = '300 17px ui-monospace, Menlo, monospace';
+    ctx.fillText('— TAP TO RIDE —', W / 2, H * 0.62);
+    ctx.textAlign = 'left';
+  } else if (state === 'over') {
+    ctx.fillStyle = 'rgba(5,5,16,0.55)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = '300 15px ui-monospace, Menlo, monospace';
+    ctx.fillText('OUT OF STEAM', W / 2, H * 0.36);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `200 ${Math.min(72, W * 0.13)}px ui-monospace, Menlo, monospace`;
+    ctx.fillText(String(overScore), W / 2, H * 0.36 + 74);
+    if (newBest) {
+      ctx.fillStyle = '#ffe14d';
+      ctx.font = '300 15px ui-monospace, Menlo, monospace';
+      ctx.fillText('NEW BEST', W / 2, H * 0.36 + 104);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.font = '300 15px ui-monospace, Menlo, monospace';
+      ctx.fillText('BEST ' + best, W / 2, H * 0.36 + 104);
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = '300 17px ui-monospace, Menlo, monospace';
+    ctx.fillText('— TAP TO RIDE AGAIN —', W / 2, H * 0.62);
+    ctx.textAlign = 'left';
+  }
+}
+
+// ---------- input ----------
+function muteHit(x, y) { return x > W - 130 && y < 48; }
+function onDown(x, y) {
+  if (muteHit(x, y)) {
+    muted = !muted;
+    if (AC && windGain) windGain.gain.setTargetAtTime(0, AC.currentTime, 0.05);
+    return;
+  }
+  initAudio();
+  if (AC && AC.state === 'suspended') AC.resume().catch(() => {});
+  if (state === 'ready' || state === 'over') { newRun(); state = 'play'; }
+  holding = true;
+  sfx.dive();
+}
+function onUp() { holding = false; }
+cv.addEventListener('pointerdown', e => { e.preventDefault(); onDown(e.clientX, e.clientY); });
+window.addEventListener('pointerup', onUp);
+window.addEventListener('pointercancel', onUp);
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+// ---------- main loop ----------
+newRun();
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (state === 'play') step(dt);
+  else elapsed += dt;
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// debug hook for automated play-testing
+window.__dr = {
+  get state() { return state; },
+  get rider() { return rider; },
+  get dist() { return dist; },
+  get runMult() { return runMult; },
+  get bestMult() { return bestMult; },
+  get floats() { return floats.map(f => f.txt); },
+  duneY, duneSlope,
+  press(x, y) { onDown(x == null ? W / 2 : x, y == null ? H / 2 : y); },
+  release() { onUp(); },
+  toggleMute() { muted = !muted; }
+};
+</script>
+</body>
+</html>
