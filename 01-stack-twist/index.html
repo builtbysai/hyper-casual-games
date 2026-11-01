@@ -2,470 +2,512 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Stack Twist</title>
-<meta name="description" content="Stack Twist — a tap-timing tower. Drop the swinging block, slice the overhang. From level 8 the wind starts pushing back.">
-<meta name="theme-color" content="#0b0e2a">
+<meta name="theme-color" content="#0b1026">
 <style>
-  html, body {
-    margin: 0; padding: 0; height: 100%; overflow: hidden;
-    background: #0b0e2a; overscroll-behavior: none;
-    -webkit-user-select: none; user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    font-family: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
-  }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0b1026; }
   canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: pointer; }
+  #mute { position: fixed; top: 14px; right: 16px; z-index: 5; font: 11px/1 ui-monospace, monospace;
+    letter-spacing: .18em; color: rgba(255,255,255,.55); background: none; border: none;
+    cursor: pointer; padding: 8px; }
+  #mute:hover { color: #fff; }
 </style>
 </head>
 <body>
 <canvas id="g"></canvas>
+<button id="mute" type="button">SOUND ON</button>
 <script>
 'use strict';
-/* STACK TWIST — hyper-casual #01.
- * Model: Stack (tap-timing tower). Improve: wind gusts from level 8.
- * One touch. Portrait. No buttons except a tiny mute toggle.
+/* STACK TWIST 3D — tap-timing tower in real perspective 3D.
+ * Blocks swing along alternating axes (X, Z, X, Z...). Tap drops.
+ * Overhang slices off with tumbling debris. Wind gusts (level 8+) shove
+ * the swinging block — telegraphed by streaks, a flag, and an indicator.
  */
 const cv = document.getElementById('g');
 const ctx = cv.getContext('2d');
 let W = 0, H = 0, DPR = 1;
-
 function resize() {
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = window.innerWidth; H = window.innerHeight;
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
-window.addEventListener('resize', resize);
-resize();
+window.addEventListener('resize', resize); resize();
+
+// ---------- tiny 3D ----------
+const BH = 0.55;                 // block height (world units)
+const BASE = 2.3;                // starting footprint
+let camAz = Math.PI / 4, camT = 0;
+const camTarget = { x: 0, y: 0, z: 0 };
+const camPos = { x: 0, y: 0, z: 0 };
+let focal = 800;
+
+function updateCamera(dt, topY) {
+  camT += dt;
+  camAz = Math.PI / 4 + Math.sin(camT * 0.07) * 0.05;
+  const wantY = topY + 1.4;
+  camTarget.x += (0 - camTarget.x) * Math.min(1, dt * 3);
+  camTarget.y += (wantY - camTarget.y) * Math.min(1, dt * 3);
+  camTarget.z += (0 - camTarget.z) * Math.min(1, dt * 3);
+  const dist = 7.2, h = 5.4;
+  camPos.x = camTarget.x + Math.cos(camAz) * dist;
+  camPos.y = camTarget.y + h;
+  camPos.z = camTarget.z + Math.sin(camAz) * dist;
+  focal = Math.min(W, H) * 1.5;
+}
+const _f = { x: 0, y: 0, z: 0 }, _r = { x: 0, y: 0, z: 0 }, _u = { x: 0, y: 0, z: 0 }, _v = { x: 0, y: 0, z: 0 };
+function project(x, y, z, out) {
+  _f.x = camTarget.x - camPos.x; _f.y = camTarget.y - camPos.y; _f.z = camTarget.z - camPos.z;
+  const fl = Math.hypot(_f.x, _f.y, _f.z); _f.x /= fl; _f.y /= fl; _f.z /= fl;
+  _r.x = _f.z * 0 - _f.y * 1; _r.y = _f.x * 1 - _f.z * 0; _r.z = 0; // cross(f, up=(0,1,0))
+  // cross(f, up): (f.y*0 - f.z*1, f.z*0 - f.x*0, f.x*1 - f.y*0)
+  _r.x = -_f.z; _r.y = 0; _r.z = _f.x;
+  const rl = Math.hypot(_r.x, _r.y, _r.z); _r.x /= rl; _r.y /= rl; _r.z /= rl;
+  _u.x = _r.y * _f.z - _r.z * _f.y; _u.y = _r.z * _f.x - _r.x * _f.z; _u.z = _r.x * _f.y - _r.y * _f.x;
+  _v.x = x - camPos.x; _v.y = y - camPos.y; _v.z = z - camPos.z;
+  const cx = _v.x * _r.x + _v.y * _r.y + _v.z * _r.z;
+  const cy = _v.x * _u.x + _v.y * _u.y + _v.z * _u.z;
+  const cz = _v.x * _f.x + _v.y * _f.y + _v.z * _f.z;
+  if (cz < 0.1) return null;
+  out.x = W / 2 + cx * focal / cz;
+  out.y = H / 2 - cy * focal / cz;
+  out.d = cz;
+  return out;
+}
+const _p = { x: 0, y: 0, d: 0 };
 
 // ---------- audio ----------
 let AC = null, muted = false;
 function ac() {
-  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; } }
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
   if (AC && AC.state === 'suspended') AC.resume();
   return AC;
 }
-function tone(freq, dur, type, vol, slideTo) {
-  if (muted) return;
-  const a = ac(); if (!a) return;
+function tone(f, t, dur, type, vol) {
+  if (muted) return; const a = ac(); if (!a) return;
   const o = a.createOscillator(), g = a.createGain();
-  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, a.currentTime);
-  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, a.currentTime + dur);
-  g.gain.setValueAtTime(vol || 0.18, a.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+  o.type = type || 'sine'; o.frequency.value = f;
+  g.gain.setValueAtTime(vol || 0.12, a.currentTime + t);
+  g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + t + dur);
   o.connect(g); g.connect(a.destination);
-  o.start(); o.stop(a.currentTime + dur + 0.02);
+  o.start(a.currentTime + t); o.stop(a.currentTime + t + dur + 0.02);
+}
+function thud() {
+  if (muted) return; const a = ac(); if (!a) return;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = 'triangle'; o.frequency.setValueAtTime(140, a.currentTime);
+  o.frequency.exponentialRampToValueAtTime(45, a.currentTime + 0.12);
+  g.gain.setValueAtTime(0.22, a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.14);
+  o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + 0.16);
 }
 const PENTA = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.7, 1318.5];
-const sfx = {
-  drop()   { tone(140, 0.12, 'sine', 0.22, 70); },
-  slice()  { tone(2200, 0.05, 'square', 0.05); },
-  perfect(c){ tone(PENTA[Math.min(c, PENTA.length - 1)], 0.35, 'triangle', 0.2); tone(PENTA[Math.min(c, PENTA.length - 1)] * 2, 0.25, 'sine', 0.08); },
-  over()   { tone(420, 0.5, 'sawtooth', 0.1, 90); tone(210, 0.7, 'triangle', 0.12, 55); },
-  mile()   { tone(660, 0.2, 'triangle', 0.12); setTimeout(() => tone(990, 0.3, 'triangle', 0.12), 120); }
-};
-function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
-
-// ---------- sky ----------
-const SKIES = [ // [top, mid, bot] — dawn, day, dusk, night, space
-  [[58,74,122],  [183,110,121], [242,184,128]],
-  [[61,123,196], [127,178,229], [207,232,247]],
-  [[44,42,94],   [163,74,122],  [240,135,111]],
-  [[11,14,42],   [35,42,94],    [74,58,110]],
-  [[4,6,15],     [13,19,48],    [28,20,64]]
-];
-function hx(c) { return `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`; }
-function skyAt(h) {
-  const t = Math.max(0, Math.min(3.999, h / 10));
-  const i = Math.floor(t), f = t - i;
-  const A = SKIES[i], B = SKIES[i + 1];
-  return [0, 1, 2].map(k => [
-    A[k][0] + (B[k][0] - A[k][0]) * f,
-    A[k][1] + (B[k][1] - A[k][1]) * f,
-    A[k][2] + (B[k][2] - A[k][2]) * f
-  ]);
-}
-// stars (fixed)
-const stars = [];
-for (let i = 0; i < 130; i++) stars.push({ x: Math.random(), y: Math.random() * 0.7, r: Math.random() * 1.4 + 0.4, tw: Math.random() * 6.28 });
+document.getElementById('mute').addEventListener('click', e => {
+  e.stopPropagation();
+  muted = !muted;
+  e.target.textContent = muted ? 'SOUND OFF' : 'SOUND ON';
+});
+function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
 // ---------- game state ----------
-const BH = 30;               // block height
-const HOVER = 30;            // hover gap above the landing spot (shows the drop guide)
-const BLOCK_W0 = 210;
-let blocks, cur, debris, parts, camY, level, best, combo;
-let state;                   // 'title' | 'play' | 'fall' | 'over'
-let windT, gustDir, flagWave;
-let banner, bannerT;
-let perfectFlash, perfectFlashT;
-let fallAnim;                // {bx, bw, y0, t}
-let overT;
-let titleT = 0;
+const tower = [];   // {x, z, w, d} — y = index * BH
+let level = 0, combo = 0, score = 0, best = 0;
+let state = 'title'; // title | swing | fall | over
+let block = null;    // {axis, pos, w, d, y, vy}
+let phase = 0, swingSpeed = 1.6;
+let debris = [];     // {x,y,z,vx,vy,vz,w,d,ry,vr,life}
+let shake = 0;
+let banner = null;   // {text, t}
+let flash = 0;
+try { best = parseInt(localStorage.getItem('stacktwist3d_best') || '0', 10) || 0; } catch (e) {}
 
-function newGame() {
-  blocks = [{ x: 0, w: BLOCK_W0 }];
-  debris = []; parts = [];
-  camY = -(BH) - H * 0.35 + BH; // will ease anyway; set sanely below
-  camY = -H * 0.35;
-  level = 0; combo = 0;
-  best = parseInt(localStorage.getItem('stacktwist_best') || '0', 10) || 0;
-  windT = 0; gustDir = 1; flagWave = 0;
-  banner = ''; bannerT = 0;
-  perfectFlashT = 0; overT = 0; fallAnim = null;
-  spawnMover(1);
-  state = 'play';
+function reset() {
+  tower.length = 0;
+  tower.push({ x: 0, z: 0, w: BASE, d: BASE });
+  level = 0; combo = 0; score = 0;
+  debris.length = 0; shake = 0; flash = 0; banner = null;
+  spawnBlock();
+  state = 'swing';
 }
-function spawnMover(dir) {
-  const speed = Math.min(560, 250 + level * 9);
-  const range = W * 0.5 - 30;
-  cur = {
-    x: -range * dir, w: blocks[blocks.length - 1].w,
-    dir: dir, speed: speed, range: range,
-    y: -blocks.length * BH - BH - HOVER
+function spawnBlock() {
+  const top = tower[tower.length - 1];
+  const axis = (tower.length % 2 === 1) ? 'x' : 'z';
+  block = {
+    axis, w: top.w, d: top.d,
+    y: tower.length * BH + 2.2,
+    vy: 0, state: 'swing',
+    dir: Math.random() < 0.5 ? 1 : -1
   };
+  phase = block.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
+  swingSpeed = Math.min(3.4, 1.6 + tower.length * 0.055);
+  block.pos = Math.sin(phase) * 2.6;
 }
-function blockHue(lv) { return (222 + lv * 3.2) % 360; }
 
 // ---------- wind ----------
-// calm 3s → ramp 1s → gust 2.5s → ramp 1.5s, period 8s. Active level >= 8.
-function windNow() {
-  if (level < 8 || state !== 'play') return { v: 0, on: false };
-  const T = 8, t = windT % T;
-  const maxV = Math.min(1, 0.35 + (level - 8) / 22) * 150;
-  let k = 0;
-  if (t < 3) k = 0;
-  else if (t < 4) k = (t - 3);
-  else if (t < 6.5) k = 1;
-  else k = 1 - (t - 6.5) / 1.5;
-  if (t > 7.9) { /* flip handled by caller */ }
-  return { v: k * maxV * gustDir, on: k > 0.05, k: k };
+let windT = 0, windVal = 0, windDir = 1, gustSeed = 0;
+function windUpdate(dt) {
+  windT += dt;
+  if (tower.length < 8) { windVal += (0 - windVal) * Math.min(1, dt * 2); return; }
+  // calm -> gust -> calm waves, ~7s period
+  const cyc = (windT % 7) / 7;
+  let target = 0;
+  if (cyc > 0.25 && cyc < 0.6) {
+    target = Math.sin((cyc - 0.25) / 0.35 * Math.PI);
+    if (cyc - dt / 7 <= 0.25) { windDir = Math.random() < 0.5 ? 1 : -1; gustSeed = Math.random() * 10; }
+  }
+  const strength = Math.min(1.5, 0.5 + tower.length * 0.03);
+  windVal += (target * strength * windDir - windVal) * Math.min(1, dt * 2.5);
 }
 
-// ---------- update ----------
-function update(dt) {
-  titleT += dt;
-  if (bannerT > 0) bannerT -= dt;
-  if (perfectFlashT > 0) perfectFlashT -= dt;
-  flagWave += dt * (2 + Math.abs(windNow().v) / 40);
-
-  if (state === 'play' && cur) {
-    windT += dt;
-    // flip gust direction at cycle wrap
-    if (windT % 8 < dt) gustDir = Math.random() < 0.5 ? -1 : 1;
-    const w = windNow();
-    cur.x += cur.dir * cur.speed * dt + w.v * dt;
-    if (cur.x > cur.range) { cur.x = cur.range; cur.dir = -1; }
-    if (cur.x < -cur.range) { cur.x = -cur.range; cur.dir = 1; }
-    // wind streak particles
-    if (w.on && Math.random() < 0.5) {
-      parts.push({ x: gustDir > 0 ? -40 : W + 40, y: Math.random() * H,
-                   vx: gustDir * (500 + Math.random() * 300), life: 1 });
+// wind streak particles (world space around tower top)
+const streaks = [];
+for (let i = 0; i < 46; i++) streaks.push({ x: 0, y: 0, z: 0, s: 0.5 + Math.random() });
+function streakUpdate(dt) {
+  const topY = tower.length * BH;
+  for (const s of streaks) {
+    s.x += windVal * 6 * dt * s.s;
+    s.y += Math.sin(camT * 2 + s.z * 3) * 0.2 * dt;
+    if (Math.abs(s.x) > 5 || Math.abs(s.z) > 5 || Math.abs(windVal) < 0.05) {
+      s.x = -windDir * (3 + Math.random() * 2);
+      s.y = topY - 1 + Math.random() * 3.5;
+      s.z = (Math.random() - 0.5) * 7;
     }
-  }
-  if (state === 'fall' && fallAnim) {
-    fallAnim.t += dt / 0.11;
-    if (fallAnim.t >= 1) { fallAnim.t = 1; landBlock(); }
-  }
-  // debris physics
-  for (let i = debris.length - 1; i >= 0; i--) {
-    const d = debris[i];
-    d.vy += 2100 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.rot += d.vr * dt;
-    if (d.y - camY > H + 120) debris.splice(i, 1);
-  }
-  // particles
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i];
-    p.x += p.vx * dt; p.life -= dt * 1.4;
-    if (p.life <= 0 || p.x < -60 || p.x > W + 60) parts.splice(i, 1);
-  }
-  if (state === 'over') overT += dt;
-  // camera
-  const topY = -(blocks.length) * BH;
-  const target = topY - H * 0.34;
-  camY += (target - camY) * Math.min(1, dt * 4.5);
-}
-
-function dropBlock() {
-  if (state !== 'play' || !cur) return;
-  state = 'fall';
-  fallAnim = { bx: cur.x, bw: cur.w, t: 0 };
-  cur = null;
-}
-function landBlock() {
-  const prev = blocks[blocks.length - 1];
-  const bx = fallAnim.bx, bw = fallAnim.bw;
-  const left = Math.max(prev.x - prev.w / 2, bx - bw / 2);
-  const right = Math.min(prev.x + prev.w / 2, bx + bw / 2);
-  const overlap = right - left;
-  const y = -blocks.length * BH;
-  if (overlap <= 0) {
-    // total miss — the block keeps falling
-    debris.push({ x: bx, y: y, w: bw, vx: (Math.random() - 0.5) * 120, vy: 60, rot: 0, vr: (Math.random() - 0.5) * 4, hue: blockHue(level), dead: true });
-    state = 'over'; overT = 0;
-    sfx.over(); buzz(40);
-    if (level > best) { best = level; try { localStorage.setItem('stacktwist_best', String(best)); } catch (e) {} }
-    fallAnim = null;
-    return;
-  }
-  const perfect = Math.abs(bx - prev.x) <= 5 && Math.abs(bw - prev.w) < 1;
-  if (perfect) {
-    blocks.push({ x: prev.x, w: prev.w });
-    combo++;
-    perfectFlashT = 0.45;
-    sfx.perfect(combo); buzz(15);
-  } else {
-    combo = 0;
-    const nx = (left + right) / 2, nw = overlap;
-    blocks.push({ x: nx, w: nw });
-    // sliced debris: the part that hung over
-    let dx, dw;
-    if (bx < prev.x) { dx = (bx - bw / 2 + left) / 2; dw = left - (bx - bw / 2); }
-    else { dx = (right + bx + bw / 2) / 2; dw = (bx + bw / 2) - right; }
-    if (dw > 2) debris.push({ x: dx, y: y, w: dw, vx: (bx < prev.x ? -1 : 1) * (60 + Math.random() * 80), vy: -40, rot: 0, vr: (Math.random() - 0.5) * 6, hue: blockHue(level) });
-    sfx.drop(); sfx.slice();
-  }
-  level = blocks.length - 1;
-  // milestone
-  if (level > 0 && level % 10 === 0) {
-    const names = ['DAWN', 'DAY', 'DUSK', 'NIGHT', 'STARFIELD'];
-    banner = level + ' — ' + (names[Math.min(4, (level / 10) | 0)]);
-    bannerT = 2.2;
-    sfx.mile();
-  }
-  fallAnim = null;
-  state = 'play';
-  spawnMover(cur && cur.dir ? -cur.dir : (Math.random() < 0.5 ? 1 : -1));
-}
-
-// ---------- draw ----------
-function drawBlock(x, y, w, hue, flash) {
-  // y = TOP of block in world coords. front face + top face.
-  const sx = W / 2 + x, sy = y - camY;
-  if (sy > H + 60 || sy + BH < -60) return;
-  const skew = 12, dep = 12;
-  const base = `hsl(${hue},42%,${flash ? 72 : 50}%)`;
-  const top = `hsl(${hue},48%,${flash ? 84 : 63}%)`;
-  const edge = `hsl(${hue},55%,78%)`;
-  ctx.fillStyle = base;
-  ctx.fillRect(sx - w / 2, sy, w, BH);
-  // top face
-  ctx.fillStyle = top;
-  ctx.beginPath();
-  ctx.moveTo(sx - w / 2, sy);
-  ctx.lineTo(sx + w / 2, sy);
-  ctx.lineTo(sx + w / 2 + skew, sy - dep);
-  ctx.lineTo(sx - w / 2 + skew, sy - dep);
-  ctx.closePath(); ctx.fill();
-  // crisp highlight
-  ctx.strokeStyle = edge; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(sx - w / 2, sy + 0.75); ctx.lineTo(sx + w / 2, sy + 0.75); ctx.stroke();
-  if (flash) {
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillRect(sx - w / 2, sy, w, BH);
-  }
-}
-function draw() {
-  const sky = skyAt(level);
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, hx(sky[0])); g.addColorStop(0.55, hx(sky[1])); g.addColorStop(1, hx(sky[2]));
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-
-  // sun / moon orb
-  const dayT = Math.min(1, level / 40);
-  const orbY = H * (0.72 - dayT * 0.5);
-  const orbR = 46;
-  const og = ctx.createRadialGradient(W * 0.78, orbY, 4, W * 0.78, orbY, orbR * 2.6);
-  const oc = dayT < 0.5 ? '255,214,150' : '220,228,255';
-  og.addColorStop(0, `rgba(${oc},0.9)`); og.addColorStop(0.35, `rgba(${oc},0.35)`); og.addColorStop(1, `rgba(${oc},0)`);
-  ctx.fillStyle = og;
-  ctx.beginPath(); ctx.arc(W * 0.78, orbY, orbR * 2.6, 0, 7); ctx.fill();
-  ctx.fillStyle = `rgba(${oc},0.95)`;
-  ctx.beginPath(); ctx.arc(W * 0.78, orbY, orbR * (dayT < 0.5 ? 1 : 0.72), 0, 7); ctx.fill();
-
-  // stars fade in at night
-  const starA = Math.max(0, Math.min(1, (level - 22) / 12));
-  if (starA > 0) {
-    const t = titleT;
-    for (const s of stars) {
-      const a = starA * (0.35 + 0.65 * Math.abs(Math.sin(t * 1.4 + s.tw)));
-      ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
-      ctx.fillRect(s.x * W, s.y * H, s.r, s.r);
-    }
-  }
-
-  // wind streaks
-  for (const p of parts) {
-    ctx.strokeStyle = `rgba(255,255,255,${(p.life * 0.35).toFixed(3)})`;
-    ctx.lineWidth = 1.5;
-    const len = 34 * Math.sign(p.vx);
-    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - len, p.y); ctx.stroke();
-  }
-
-  // tower
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    drawBlock(b.x, -i * BH - BH, b.w, blockHue(i), false);
-  }
-  // flag on tower (wind telegraph), from level 8
-  if (level >= 8 && blocks.length > 0) {
-    const tb = blocks[blocks.length - 1];
-    const fx = W / 2 + tb.x + tb.w / 2 - 14, fy = -blocks.length * BH - camY;
-    const wv = Math.abs(windNow().v);
-    ctx.strokeStyle = 'rgba(240,240,240,0.85)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx, fy - 34); ctx.stroke();
-    const dir = gustDir, amp = 4 + wv / 22;
-    const wave = Math.sin(flagWave) * amp;
-    ctx.fillStyle = wv > 8 ? '#ff5d5d' : 'rgba(240,240,240,0.75)';
-    ctx.beginPath();
-    ctx.moveTo(fx, fy - 34);
-    ctx.quadraticCurveTo(fx + dir * 14, fy - 34 + wave * 0.4, fx + dir * 26, fy - 30 + wave);
-    ctx.lineTo(fx, fy - 24);
-    ctx.closePath(); ctx.fill();
-  }
-  // debris
-  for (const d of debris) {
-    ctx.save();
-    ctx.translate(W / 2 + d.x, d.y - camY);
-    ctx.rotate(d.rot);
-    ctx.fillStyle = `hsl(${d.hue},42%,46%)`;
-    ctx.fillRect(-d.w / 2, 0, d.w, BH);
-    ctx.restore();
-  }
-
-  const flash = perfectFlashT > 0;
-  if (state === 'play' && cur) {
-    // faint dotted drop guide
-    const gx = W / 2 + cur.x;
-    const topY = -(blocks.length) * BH - camY;
-    ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 2;
-    ctx.setLineDash([2, 9]);
-    ctx.beginPath(); ctx.moveTo(gx, cur.y - camY + BH); ctx.lineTo(gx, topY); ctx.stroke();
-    ctx.setLineDash([]);
-    drawBlock(cur.x, cur.y, cur.w, blockHue(blocks.length), flash);
-  }
-  if (state === 'fall' && fallAnim) {
-    const e = fallAnim.t * fallAnim.t;
-    drawBlock(fallAnim.bx, -blocks.length * BH - BH - HOVER + e * HOVER, fallAnim.bw, blockHue(blocks.length), false);
-  }
-
-  // HUD — score
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.font = '200 54px "Avenir Next","Segoe UI",system-ui,sans-serif';
-  ctx.fillText(String(level), W / 2, 92);
-  ctx.font = '500 11px "Avenir Next","Segoe UI",system-ui,sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  const ls = 3;
-  ctx.save(); ctx.letterSpacing = ls + 'px';
-  ctx.fillText('BEST ' + best, W / 2, 118);
-  ctx.restore();
-  // wind indicator text from level 8
-  if (level >= 8 && state === 'play') {
-    const w = windNow();
-    ctx.fillStyle = w.on ? 'rgba(255,120,120,0.9)' : 'rgba(255,255,255,0.45)';
-    ctx.font = '500 11px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.save(); ctx.letterSpacing = '3px';
-    ctx.fillText(w.on ? (gustDir > 0 ? 'WIND →' : '← WIND') : 'WIND CALM', W / 2, 142);
-    ctx.restore();
-  }
-  // milestone banner
-  if (bannerT > 0) {
-    const a = Math.min(1, bannerT / 0.6, (2.2 - bannerT) / 0.4 + 0.2);
-    ctx.fillStyle = `rgba(255,255,255,${(a * 0.95).toFixed(3)})`;
-    ctx.font = '200 30px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.save(); ctx.letterSpacing = '6px';
-    ctx.fillText(banner, W / 2, H * 0.42);
-    ctx.restore();
-  }
-  // combo
-  if (combo >= 2 && state === 'play') {
-    ctx.fillStyle = 'rgba(255,220,150,0.9)';
-    ctx.font = '600 15px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.save(); ctx.letterSpacing = '2px';
-    ctx.fillText('PERFECT ×' + combo, W / 2, H * 0.24);
-    ctx.restore();
-  }
-  // mute toggle (tiny)
-  ctx.textAlign = 'right';
-  ctx.fillStyle = 'rgba(255,255,255,0.45)';
-  ctx.font = '500 11px "Avenir Next","Segoe UI",system-ui,sans-serif';
-  ctx.save(); ctx.letterSpacing = '2px';
-  ctx.fillText(muted ? 'UNMUTE' : 'MUTE', W - 16, 30);
-  ctx.restore();
-
-  if (state === 'title') {
-    ctx.fillStyle = 'rgba(4,6,15,0.45)'; ctx.fillRect(0, 0, W, H);
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    ctx.font = '200 44px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.save(); ctx.letterSpacing = '10px';
-    ctx.fillText('STACK TWIST', W / 2 + 5, H * 0.4);
-    ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.font = '400 15px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    const pulse = 0.55 + 0.25 * Math.sin(titleT * 3);
-    ctx.fillStyle = `rgba(255,255,255,${pulse.toFixed(3)})`;
-    ctx.fillText('tap to begin', W / 2, H * 0.4 + 44);
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.font = '400 12px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.fillText('tap drops the block · mind the wind from level 8', W / 2, H * 0.4 + 74);
-  }
-  if (state === 'over') {
-    const a = Math.min(1, overT / 0.5);
-    ctx.fillStyle = `rgba(4,6,15,${(a * 0.55).toFixed(3)})`; ctx.fillRect(0, 0, W, H);
-    ctx.textAlign = 'center';
-    ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
-    ctx.font = '200 40px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.save(); ctx.letterSpacing = '8px';
-    ctx.fillText('GAME OVER', W / 2 + 4, H * 0.36);
-    ctx.restore();
-    ctx.font = '200 64px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.fillText(String(level), W / 2, H * 0.36 + 84);
-    ctx.font = '500 12px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.fillStyle = `rgba(255,255,255,${(a * 0.6).toFixed(3)})`;
-    ctx.save(); ctx.letterSpacing = '3px';
-    ctx.fillText('BEST ' + best, W / 2, H * 0.36 + 116);
-    ctx.restore();
-    const pulse = 0.55 + 0.25 * Math.sin(titleT * 3);
-    ctx.fillStyle = `rgba(255,255,255,${(a * pulse).toFixed(3)})`;
-    ctx.font = '400 15px "Avenir Next","Segoe UI",system-ui,sans-serif';
-    ctx.fillText('tap to rebuild', W / 2, H * 0.36 + 160);
   }
 }
 
 // ---------- input ----------
-function onTap(x, y) {
+function onTap() {
   ac();
-  // mute toggle hit?
-  if (x > W - 90 && y < 56) { muted = !muted; return; }
-  if (state === 'title') { newGame(); return; }
-  if (state === 'over') { if (overT > 0.6) newGame(); return; }
-  if (state === 'play') dropBlock();
+  if (state === 'title') { reset(); return; }
+  if (state === 'over') { reset(); return; }
+  if (state === 'swing' && block && block.state === 'swing') {
+    block.state = 'fall'; block.vy = 0;
+  }
 }
-cv.addEventListener('pointerdown', e => { e.preventDefault(); onTap(e.clientX, e.clientY); });
-document.addEventListener('contextmenu', e => e.preventDefault());
-document.addEventListener('dblclick', e => e.preventDefault());
+cv.addEventListener('pointerdown', onTap);
+
+// ---------- update ----------
+function drop(dt) {
+  block.vy += 30 * dt;
+  block.y -= block.vy * dt;
+  const topY = tower.length * BH;
+  if (block.y <= topY) {
+    block.y = topY;
+    land();
+  }
+}
+function land() {
+  const top = tower[tower.length - 1];
+  const ax = block.axis;
+  const cPrev = ax === 'x' ? top.x : top.z;
+  const sPrev = ax === 'x' ? top.w : top.d;
+  const sBlk = ax === 'x' ? block.w : block.d;
+  const lo = Math.max(block.pos - sBlk / 2, cPrev - sPrev / 2);
+  const hi = Math.min(block.pos + sBlk / 2, cPrev + sPrev / 2);
+  const ov = hi - lo;
+  thud();
+  if (ov <= 0.02) { gameOver(); return; }
+  const off = Math.abs(block.pos - cPrev);
+  if (off <= 0.07) {
+    // PERFECT
+    combo++;
+    const nb = { x: top.x, z: top.z, w: top.w, d: top.d };
+    if (ax === 'x') nb.x = cPrev; else nb.z = cPrev;
+    tower.push(nb);
+    flash = 1;
+    const n = PENTA[Math.min(PENTA.length - 1, combo - 1 + 2)];
+    tone(n, 0, 0.25, 'sine', 0.14); tone(n * 2, 0.02, 0.2, 'sine', 0.06);
+    buzz(15);
+    banner = combo >= 3 ? { text: 'PERFECT x' + combo, t: 0 } : null;
+  } else {
+    combo = 0;
+    const nc = (lo + hi) / 2, nw = ov;
+    const nb = { x: top.x, z: top.z, w: top.w, d: top.d };
+    if (ax === 'x') { nb.x = nc; nb.w = nw; } else { nb.z = nc; nb.d = nw; }
+    tower.push(nb);
+    // debris = the sliced overhang
+    const cutLo = block.pos - sBlk / 2 < lo;
+    const dw = sBlk - ov;
+    const dc = cutLo ? (block.pos - sBlk / 2 + lo) / 2 : (hi + block.pos + sBlk / 2) / 2;
+    const d = {
+      x: ax === 'x' ? dc : top.x, z: ax === 'z' ? dc : top.z,
+      y: topY(), vx: (cutLo ? -1 : 1) * (ax === 'x' ? 1.6 : 0.3), vz: (cutLo ? -1 : 1) * (ax === 'z' ? 1.6 : 0.3),
+      vy: 0.5, w: ax === 'x' ? dw : top.w, d: ax === 'z' ? dw : top.d,
+      ry: Math.random() * 6.28, vr: (Math.random() - 0.5) * 6, life: 1.6
+    };
+    debris.push(d);
+    tone(220, 0, 0.08, 'square', 0.05);
+  }
+  level++; score = tower.length - 1;
+  if (score > best) { best = score; try { localStorage.setItem('stacktwist3d_best', String(best)); } catch (e) {} }
+  if ((tower.length - 1) % 10 === 0) {
+    banner = { text: (tower.length - 1) + '', t: 0 };
+    [440, 554, 659].forEach((f, i) => tone(f, i * 0.07, 0.2, 'sine', 0.1));
+  }
+  spawnBlock();
+  state = 'swing';
+}
+function topY() { return (tower.length - 1) * BH; }
+function gameOver() {
+  state = 'over';
+  block.state = 'gone';
+  block.vy = 1;
+  shake = 0.5;
+  tone(330, 0, 0.2, 'sawtooth', 0.08); tone(220, 0.15, 0.25, 'sawtooth', 0.08); tone(147, 0.3, 0.4, 'sawtooth', 0.08);
+  buzz(40);
+}
+
+// ---------- sky ----------
+const SKY_KEYS = [
+  { l: 0,   top: [255, 183, 140], bot: [64, 50, 110] },    // dawn
+  { l: 12,  top: [120, 180, 255], bot: [200, 230, 255] },  // day
+  { l: 26,  top: [255, 140, 90],  bot: [70, 40, 110] },    // dusk
+  { l: 42,  top: [20, 26, 64],    bot: [8, 10, 34] },      // night
+  { l: 70,  top: [4, 6, 18],      bot: [2, 3, 10] }        // space
+];
+const stars = [];
+for (let i = 0; i < 130; i++) stars.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.4 + 0.3, tw: Math.random() * 6.28 });
+function skyColors(lv) {
+  let a = SKY_KEYS[0], b = SKY_KEYS[SKY_KEYS.length - 1];
+  for (let i = 0; i < SKY_KEYS.length - 1; i++) {
+    if (lv >= SKY_KEYS[i].l && lv <= SKY_KEYS[i + 1].l) { a = SKY_KEYS[i]; b = SKY_KEYS[i + 1]; break; }
+  }
+  const t = Math.max(0, Math.min(1, (lv - a.l) / Math.max(1, b.l - a.l)));
+  const mix = (u, v) => Math.round(u + (v - u) * t);
+  return {
+    top: `rgb(${mix(a.top[0], b.top[0])},${mix(a.top[1], b.top[1])},${mix(a.top[2], b.top[2])})`,
+    bot: `rgb(${mix(a.bot[0], b.bot[0])},${mix(a.bot[1], b.bot[1])},${mix(a.bot[2], b.bot[2])})`,
+    night: t > 0.5 ? (t - 0.5) * 2 : 0
+  };
+}
+
+// ---------- draw ----------
+function blockColor(lv, face) {
+  const h = (168 + lv * 5) % 360;
+  const li = face === 0 ? 62 : face === 1 ? 50 : 40;
+  return `hsl(${h},58%,${li}%)`;
+}
+function drawBox(bx, by, bz, w, d, lv, alpha) {
+  // corners
+  const x0 = bx - w / 2, x1 = bx + w / 2, z0 = bz - d / 2, z1 = bz + d / 2;
+  const y0 = by, y1 = by + BH;
+  const c = [
+    [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1],
+    [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]
+  ];
+  const p = c.map(v => { const o = { x: 0, y: 0, d: 0 }; return project(v[0], v[1], v[2], o); });
+  if (p.some(v => !v)) return;
+  // camera sits at +x,+z quadrant: visible faces are +x (1,2,6,5), +z (2,3,7,6), +y (4,5,6,7)
+  const faces = [
+    { idx: [1, 2, 6, 5], f: 1 }, { idx: [2, 3, 7, 6], f: 2 }, { idx: [4, 5, 6, 7], f: 0 }
+  ];
+  // far-to-near among the three (painter within box)
+  faces.sort((m, n) => {
+    const dm = (p[m.idx[0]].d + p[m.idx[2]].d) / 2, dn = (p[n.idx[0]].d + p[n.idx[2]].d) / 2;
+    return dn - dm;
+  });
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  for (const f of faces) {
+    ctx.fillStyle = blockColor(lv, f.f);
+    ctx.beginPath();
+    ctx.moveTo(p[f.idx[0]].x, p[f.idx[0]].y);
+    for (let i = 1; i < 4; i++) ctx.lineTo(p[f.idx[i]].x, p[f.idx[i]].y);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function draw() {
+  const lv = tower.length - 1;
+  const sky = skyColors(lv);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, sky.top); g.addColorStop(1, sky.bot);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // stars
+  if (sky.night > 0.02) {
+    for (const s of stars) {
+      const a = sky.night * (0.35 + 0.65 * Math.abs(Math.sin(camT * 1.5 + s.tw)));
+      ctx.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
+      ctx.fillRect(s.x * W, s.y * H * 0.7, s.r, s.r);
+    }
+  }
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * 22, (Math.random() - 0.5) * shake * 22);
+
+  // tower (bottom-up)
+  for (let i = 0; i < tower.length; i++) {
+    const b = tower[i];
+    drawBox(b.x, i * BH, b.z, b.w, b.d, i);
+  }
+  // moving block
+  if (block && (state === 'swing' || state === 'fall')) {
+    const bx = block.axis === 'x' ? block.pos : tower[tower.length - 1].x;
+    const bz = block.axis === 'z' ? block.pos : tower[tower.length - 1].z;
+    drawBox(bx, block.y, bz, block.w, block.d, tower.length);
+    if (flash > 0) {
+      const o = { x: 0, y: 0, d: 0 };
+      if (project(bx, block.y + BH / 2, bz, o)) {
+        ctx.fillStyle = `rgba(255,255,255,${(flash * 0.5).toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(o.x, o.y, 60 * flash + 20, 0, 6.29); ctx.fill();
+      }
+    }
+    // drop guide
+    if (block.state === 'swing') {
+      const a = { x: 0, y: 0, d: 0 }, b2 = { x: 0, y: 0, d: 0 };
+      if (project(bx, block.y, bz, a) && project(bx, tower.length * BH, bz, b2)) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+        ctx.lineWidth = 2; ctx.setLineDash([4, 7]);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b2.x, b2.y); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+  // debris
+  debris = debris.filter(d => d.life > 0);
+  for (const d of debris) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, d.life));
+    drawBox(d.x, d.y, d.z, d.w, d.d, tower.length - 1);
+    ctx.restore();
+  }
+  // wind streaks
+  if (Math.abs(windVal) > 0.06) {
+    ctx.strokeStyle = `rgba(255,255,255,${(Math.min(0.5, Math.abs(windVal) * 0.35)).toFixed(2)})`;
+    ctx.lineWidth = 1.5;
+    const o1 = { x: 0, y: 0, d: 0 }, o2 = { x: 0, y: 0, d: 0 };
+    for (const s of streaks) {
+      if (project(s.x, s.y, s.z, o1) && project(s.x - windVal * 0.7, s.y, s.z, o2)) {
+        ctx.beginPath(); ctx.moveTo(o1.x, o1.y); ctx.lineTo(o2.x, o2.y); ctx.stroke();
+      }
+    }
+  }
+  // flag on tower top
+  {
+    const top = tower[tower.length - 1];
+    const a = { x: 0, y: 0, d: 0 };
+    if (project(top.x + top.w / 2 - 0.1, tower.length * BH + BH, top.z + top.d / 2 - 0.1, a)) {
+      const fh = Math.min(W, H) * 0.09;
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y - fh); ctx.stroke();
+      const wlen = fh * (0.35 + Math.min(1, Math.abs(windVal)) * 0.65);
+      const wdir = windVal >= 0 ? 1 : -1;
+      const wave = Math.sin(camT * 9) * 3 * Math.min(1, Math.abs(windVal) + 0.15);
+      ctx.fillStyle = '#e0495f';
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y - fh);
+      ctx.lineTo(a.x + wdir * wlen, a.y - fh + fh * 0.22 + wave);
+      ctx.lineTo(a.x, a.y - fh + fh * 0.44);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // wind indicator
+  if (tower.length >= 8 && state !== 'title') {
+    const s = Math.abs(windVal);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.font = '600 13px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    const label = s < 0.12 ? 'CALM' : (windVal > 0 ? 'WIND →' : '← WIND');
+    ctx.fillText(label, W / 2, 112);
+    if (s >= 0.12) {
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(W / 2 - 60, 120, 120, 3);
+      ctx.fillStyle = '#e0495f';
+      ctx.fillRect(W / 2 - 60, 120, 120 * Math.min(1, s / 1.5), 3);
+    }
+  }
+
+  // score
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.textAlign = 'center';
+  if (state === 'title') {
+    ctx.font = '700 44px system-ui, sans-serif';
+    ctx.fillText('STACK TWIST', W / 2, H * 0.32);
+    ctx.font = '400 17px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillText('tap to drop the block', W / 2, H * 0.32 + 40);
+    ctx.fillText('wind comes at level 8', W / 2, H * 0.32 + 66);
+    if (best > 0) { ctx.fillText('best ' + best, W / 2, H * 0.32 + 96); }
+  } else {
+    ctx.font = '700 52px system-ui, sans-serif';
+    ctx.fillText(String(score), W / 2, 64);
+    ctx.font = '400 13px ui-monospace, monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('BEST ' + best, W / 2, 86);
+  }
+  // banner
+  if (banner) {
+    const a = Math.max(0, 1 - banner.t / 1.4);
+    ctx.fillStyle = `rgba(255,255,255,${(a * 0.95).toFixed(2)})`;
+    ctx.font = '700 30px system-ui, sans-serif';
+    ctx.fillText(banner.text, W / 2, H * 0.4 - banner.t * 30);
+  }
+  // game over
+  if (state === 'over') {
+    ctx.fillStyle = 'rgba(5,8,20,0.55)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 40px system-ui, sans-serif';
+    ctx.fillText('GAME OVER', W / 2, H * 0.38);
+    ctx.font = '400 20px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillText('score ' + score + '   ·   best ' + best, W / 2, H * 0.38 + 44);
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '400 16px system-ui, sans-serif';
+    ctx.fillText('tap to rebuild', W / 2, H * 0.38 + 78);
+  }
+  if (flash > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${(flash * 0.12).toFixed(2)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
 
 // ---------- main loop ----------
-state = 'title';
-blocks = [{ x: 0, w: BLOCK_W0 }];
-debris = []; parts = [];
-camY = -H * 0.35; level = 0; combo = 0;
-best = parseInt(localStorage.getItem('stacktwist_best') || '0', 10) || 0;
-windT = 0; gustDir = 1; flagWave = 0; bannerT = 0; perfectFlashT = 0;
-spawnMover(1);
-
 let last = performance.now();
-function loop(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+function frame(now) {
+  let dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (state !== 'title') update(dt);
-  else { titleT += dt; }
+  if (state === 'title') {
+    if (tower.length === 0) { tower.push({ x: 0, z: 0, w: BASE, d: BASE }); }
+  } else if (state === 'swing' || state === 'fall') {
+    phase += dt * swingSpeed * (block.dir || 1);
+    if (block.state === 'swing') {
+      block.pos = Math.sin(phase) * 2.6 + windVal * 0.9;
+    } else if (block.state === 'fall') {
+      drop(dt);
+    }
+    // debris physics
+    for (const d of debris) {
+      d.vy -= 14 * dt;
+      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      d.ry += d.vr * dt; d.life -= dt * 0.7;
+    }
+  } else if (state === 'over' && block && block.state === 'gone') {
+    block.vy += 20 * dt;
+    block.y -= block.vy * dt;
+    for (const d of debris) {
+      d.vy -= 14 * dt;
+      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      d.life -= dt * 0.7;
+    }
+  }
+  windUpdate(dt);
+  streakUpdate(dt);
+  if (shake > 0) shake = Math.max(0, shake - dt * 1.4);
+  if (flash > 0) flash = Math.max(0, flash - dt * 2.2);
+  if (banner) { banner.t += dt; if (banner.t > 1.4) banner = null; }
+  updateCamera(dt, tower.length * BH);
   draw();
-  requestAnimationFrame(loop);
+  requestAnimationFrame(frame);
 }
-requestAnimationFrame(loop);
-window.STACKTWIST = { get state() { return state; }, get level() { return level; }, get moverX() { return cur ? cur.x : null; }, dropBlock, newGame };
+tower.push({ x: 0, z: 0, w: BASE, d: BASE });
+state = 'title';
+requestAnimationFrame(frame);
+
+// debug hook for automated playtesting
+window.__st = { get state() { return state; }, get level() { return tower.length; },
+  get block() { return block; }, tap: onTap, get score() { return score; } };
 </script>
 </body>
 </html>
