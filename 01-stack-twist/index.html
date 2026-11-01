@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Stack Twist</title>
+<meta name="description" content="Stack Twist — a tap-timing tower. Drop the swinging block, slice the overhang. From level 8 the wind starts pushing back.">
+<meta name="theme-color" content="#0b0e2a">
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #0b0e2a; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="g"></canvas>
+<script>
+'use strict';
+/* STACK TWIST — hyper-casual #01.
+ * Model: Stack (tap-timing tower). Improve: wind gusts from level 8.
+ * One touch. Portrait. No buttons except a tiny mute toggle.
+ */
+const cv = document.getElementById('g');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- audio ----------
+let AC = null, muted = false;
+function ac() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; } }
+  if (AC && AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function tone(freq, dur, type, vol, slideTo) {
+  if (muted) return;
+  const a = ac(); if (!a) return;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, a.currentTime);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, a.currentTime + dur);
+  g.gain.setValueAtTime(vol || 0.18, a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(); o.stop(a.currentTime + dur + 0.02);
+}
+const PENTA = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.7, 1318.5];
+const sfx = {
+  drop()   { tone(140, 0.12, 'sine', 0.22, 70); },
+  slice()  { tone(2200, 0.05, 'square', 0.05); },
+  perfect(c){ tone(PENTA[Math.min(c, PENTA.length - 1)], 0.35, 'triangle', 0.2); tone(PENTA[Math.min(c, PENTA.length - 1)] * 2, 0.25, 'sine', 0.08); },
+  over()   { tone(420, 0.5, 'sawtooth', 0.1, 90); tone(210, 0.7, 'triangle', 0.12, 55); },
+  mile()   { tone(660, 0.2, 'triangle', 0.12); setTimeout(() => tone(990, 0.3, 'triangle', 0.12), 120); }
+};
+function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+// ---------- sky ----------
+const SKIES = [ // [top, mid, bot] — dawn, day, dusk, night, space
+  [[58,74,122],  [183,110,121], [242,184,128]],
+  [[61,123,196], [127,178,229], [207,232,247]],
+  [[44,42,94],   [163,74,122],  [240,135,111]],
+  [[11,14,42],   [35,42,94],    [74,58,110]],
+  [[4,6,15],     [13,19,48],    [28,20,64]]
+];
+function hx(c) { return `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`; }
+function skyAt(h) {
+  const t = Math.max(0, Math.min(3.999, h / 10));
+  const i = Math.floor(t), f = t - i;
+  const A = SKIES[i], B = SKIES[i + 1];
+  return [0, 1, 2].map(k => [
+    A[k][0] + (B[k][0] - A[k][0]) * f,
+    A[k][1] + (B[k][1] - A[k][1]) * f,
+    A[k][2] + (B[k][2] - A[k][2]) * f
+  ]);
+}
+// stars (fixed)
+const stars = [];
+for (let i = 0; i < 130; i++) stars.push({ x: Math.random(), y: Math.random() * 0.7, r: Math.random() * 1.4 + 0.4, tw: Math.random() * 6.28 });
+
+// ---------- game state ----------
+const BH = 30;               // block height
+const HOVER = 30;            // hover gap above the landing spot (shows the drop guide)
+const BLOCK_W0 = 210;
+let blocks, cur, debris, parts, camY, level, best, combo;
+let state;                   // 'title' | 'play' | 'fall' | 'over'
+let windT, gustDir, flagWave;
+let banner, bannerT;
+let perfectFlash, perfectFlashT;
+let fallAnim;                // {bx, bw, y0, t}
+let overT;
+let titleT = 0;
+
+function newGame() {
+  blocks = [{ x: 0, w: BLOCK_W0 }];
+  debris = []; parts = [];
+  camY = -(BH) - H * 0.35 + BH; // will ease anyway; set sanely below
+  camY = -H * 0.35;
+  level = 0; combo = 0;
+  best = parseInt(localStorage.getItem('stacktwist_best') || '0', 10) || 0;
+  windT = 0; gustDir = 1; flagWave = 0;
+  banner = ''; bannerT = 0;
+  perfectFlashT = 0; overT = 0; fallAnim = null;
+  spawnMover(1);
+  state = 'play';
+}
+function spawnMover(dir) {
+  const speed = Math.min(560, 250 + level * 9);
+  const range = W * 0.5 - 30;
+  cur = {
+    x: -range * dir, w: blocks[blocks.length - 1].w,
+    dir: dir, speed: speed, range: range,
+    y: -blocks.length * BH - BH - HOVER
+  };
+}
+function blockHue(lv) { return (222 + lv * 3.2) % 360; }
+
+// ---------- wind ----------
+// calm 3s → ramp 1s → gust 2.5s → ramp 1.5s, period 8s. Active level >= 8.
+function windNow() {
+  if (level < 8 || state !== 'play') return { v: 0, on: false };
+  const T = 8, t = windT % T;
+  const maxV = Math.min(1, 0.35 + (level - 8) / 22) * 150;
+  let k = 0;
+  if (t < 3) k = 0;
+  else if (t < 4) k = (t - 3);
+  else if (t < 6.5) k = 1;
+  else k = 1 - (t - 6.5) / 1.5;
+  if (t > 7.9) { /* flip handled by caller */ }
+  return { v: k * maxV * gustDir, on: k > 0.05, k: k };
+}
+
+// ---------- update ----------
+function update(dt) {
+  titleT += dt;
+  if (bannerT > 0) bannerT -= dt;
+  if (perfectFlashT > 0) perfectFlashT -= dt;
+  flagWave += dt * (2 + Math.abs(windNow().v) / 40);
+
+  if (state === 'play' && cur) {
+    windT += dt;
+    // flip gust direction at cycle wrap
+    if (windT % 8 < dt) gustDir = Math.random() < 0.5 ? -1 : 1;
+    const w = windNow();
+    cur.x += cur.dir * cur.speed * dt + w.v * dt;
+    if (cur.x > cur.range) { cur.x = cur.range; cur.dir = -1; }
+    if (cur.x < -cur.range) { cur.x = -cur.range; cur.dir = 1; }
+    // wind streak particles
+    if (w.on && Math.random() < 0.5) {
+      parts.push({ x: gustDir > 0 ? -40 : W + 40, y: Math.random() * H,
+                   vx: gustDir * (500 + Math.random() * 300), life: 1 });
+    }
+  }
+  if (state === 'fall' && fallAnim) {
+    fallAnim.t += dt / 0.11;
+    if (fallAnim.t >= 1) { fallAnim.t = 1; landBlock(); }
+  }
+  // debris physics
+  for (let i = debris.length - 1; i >= 0; i--) {
+    const d = debris[i];
+    d.vy += 2100 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.rot += d.vr * dt;
+    if (d.y - camY > H + 120) debris.splice(i, 1);
+  }
+  // particles
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.x += p.vx * dt; p.life -= dt * 1.4;
+    if (p.life <= 0 || p.x < -60 || p.x > W + 60) parts.splice(i, 1);
+  }
+  if (state === 'over') overT += dt;
+  // camera
+  const topY = -(blocks.length) * BH;
+  const target = topY - H * 0.34;
+  camY += (target - camY) * Math.min(1, dt * 4.5);
+}
+
+function dropBlock() {
+  if (state !== 'play' || !cur) return;
+  state = 'fall';
+  fallAnim = { bx: cur.x, bw: cur.w, t: 0 };
+  cur = null;
+}
+function landBlock() {
+  const prev = blocks[blocks.length - 1];
+  const bx = fallAnim.bx, bw = fallAnim.bw;
+  const left = Math.max(prev.x - prev.w / 2, bx - bw / 2);
+  const right = Math.min(prev.x + prev.w / 2, bx + bw / 2);
+  const overlap = right - left;
+  const y = -blocks.length * BH;
+  if (overlap <= 0) {
+    // total miss — the block keeps falling
+    debris.push({ x: bx, y: y, w: bw, vx: (Math.random() - 0.5) * 120, vy: 60, rot: 0, vr: (Math.random() - 0.5) * 4, hue: blockHue(level), dead: true });
+    state = 'over'; overT = 0;
+    sfx.over(); buzz(40);
+    if (level > best) { best = level; try { localStorage.setItem('stacktwist_best', String(best)); } catch (e) {} }
+    fallAnim = null;
+    return;
+  }
+  const perfect = Math.abs(bx - prev.x) <= 5 && Math.abs(bw - prev.w) < 1;
+  if (perfect) {
+    blocks.push({ x: prev.x, w: prev.w });
+    combo++;
+    perfectFlashT = 0.45;
+    sfx.perfect(combo); buzz(15);
+  } else {
+    combo = 0;
+    const nx = (left + right) / 2, nw = overlap;
+    blocks.push({ x: nx, w: nw });
+    // sliced debris: the part that hung over
+    let dx, dw;
+    if (bx < prev.x) { dx = (bx - bw / 2 + left) / 2; dw = left - (bx - bw / 2); }
+    else { dx = (right + bx + bw / 2) / 2; dw = (bx + bw / 2) - right; }
+    if (dw > 2) debris.push({ x: dx, y: y, w: dw, vx: (bx < prev.x ? -1 : 1) * (60 + Math.random() * 80), vy: -40, rot: 0, vr: (Math.random() - 0.5) * 6, hue: blockHue(level) });
+    sfx.drop(); sfx.slice();
+  }
+  level = blocks.length - 1;
+  // milestone
+  if (level > 0 && level % 10 === 0) {
+    const names = ['DAWN', 'DAY', 'DUSK', 'NIGHT', 'STARFIELD'];
+    banner = level + ' — ' + (names[Math.min(4, (level / 10) | 0)]);
+    bannerT = 2.2;
+    sfx.mile();
+  }
+  fallAnim = null;
+  state = 'play';
+  spawnMover(cur && cur.dir ? -cur.dir : (Math.random() < 0.5 ? 1 : -1));
+}
+
+// ---------- draw ----------
+function drawBlock(x, y, w, hue, flash) {
+  // y = TOP of block in world coords. front face + top face.
+  const sx = W / 2 + x, sy = y - camY;
+  if (sy > H + 60 || sy + BH < -60) return;
+  const skew = 12, dep = 12;
+  const base = `hsl(${hue},42%,${flash ? 72 : 50}%)`;
+  const top = `hsl(${hue},48%,${flash ? 84 : 63}%)`;
+  const edge = `hsl(${hue},55%,78%)`;
+  ctx.fillStyle = base;
+  ctx.fillRect(sx - w / 2, sy, w, BH);
+  // top face
+  ctx.fillStyle = top;
+  ctx.beginPath();
+  ctx.moveTo(sx - w / 2, sy);
+  ctx.lineTo(sx + w / 2, sy);
+  ctx.lineTo(sx + w / 2 + skew, sy - dep);
+  ctx.lineTo(sx - w / 2 + skew, sy - dep);
+  ctx.closePath(); ctx.fill();
+  // crisp highlight
+  ctx.strokeStyle = edge; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(sx - w / 2, sy + 0.75); ctx.lineTo(sx + w / 2, sy + 0.75); ctx.stroke();
+  if (flash) {
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(sx - w / 2, sy, w, BH);
+  }
+}
+function draw() {
+  const sky = skyAt(level);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, hx(sky[0])); g.addColorStop(0.55, hx(sky[1])); g.addColorStop(1, hx(sky[2]));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // sun / moon orb
+  const dayT = Math.min(1, level / 40);
+  const orbY = H * (0.72 - dayT * 0.5);
+  const orbR = 46;
+  const og = ctx.createRadialGradient(W * 0.78, orbY, 4, W * 0.78, orbY, orbR * 2.6);
+  const oc = dayT < 0.5 ? '255,214,150' : '220,228,255';
+  og.addColorStop(0, `rgba(${oc},0.9)`); og.addColorStop(0.35, `rgba(${oc},0.35)`); og.addColorStop(1, `rgba(${oc},0)`);
+  ctx.fillStyle = og;
+  ctx.beginPath(); ctx.arc(W * 0.78, orbY, orbR * 2.6, 0, 7); ctx.fill();
+  ctx.fillStyle = `rgba(${oc},0.95)`;
+  ctx.beginPath(); ctx.arc(W * 0.78, orbY, orbR * (dayT < 0.5 ? 1 : 0.72), 0, 7); ctx.fill();
+
+  // stars fade in at night
+  const starA = Math.max(0, Math.min(1, (level - 22) / 12));
+  if (starA > 0) {
+    const t = titleT;
+    for (const s of stars) {
+      const a = starA * (0.35 + 0.65 * Math.abs(Math.sin(t * 1.4 + s.tw)));
+      ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+      ctx.fillRect(s.x * W, s.y * H, s.r, s.r);
+    }
+  }
+
+  // wind streaks
+  for (const p of parts) {
+    ctx.strokeStyle = `rgba(255,255,255,${(p.life * 0.35).toFixed(3)})`;
+    ctx.lineWidth = 1.5;
+    const len = 34 * Math.sign(p.vx);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - len, p.y); ctx.stroke();
+  }
+
+  // tower
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    drawBlock(b.x, -i * BH - BH, b.w, blockHue(i), false);
+  }
+  // flag on tower (wind telegraph), from level 8
+  if (level >= 8 && blocks.length > 0) {
+    const tb = blocks[blocks.length - 1];
+    const fx = W / 2 + tb.x + tb.w / 2 - 14, fy = -blocks.length * BH - camY;
+    const wv = Math.abs(windNow().v);
+    ctx.strokeStyle = 'rgba(240,240,240,0.85)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx, fy - 34); ctx.stroke();
+    const dir = gustDir, amp = 4 + wv / 22;
+    const wave = Math.sin(flagWave) * amp;
+    ctx.fillStyle = wv > 8 ? '#ff5d5d' : 'rgba(240,240,240,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(fx, fy - 34);
+    ctx.quadraticCurveTo(fx + dir * 14, fy - 34 + wave * 0.4, fx + dir * 26, fy - 30 + wave);
+    ctx.lineTo(fx, fy - 24);
+    ctx.closePath(); ctx.fill();
+  }
+  // debris
+  for (const d of debris) {
+    ctx.save();
+    ctx.translate(W / 2 + d.x, d.y - camY);
+    ctx.rotate(d.rot);
+    ctx.fillStyle = `hsl(${d.hue},42%,46%)`;
+    ctx.fillRect(-d.w / 2, 0, d.w, BH);
+    ctx.restore();
+  }
+
+  const flash = perfectFlashT > 0;
+  if (state === 'play' && cur) {
+    // faint dotted drop guide
+    const gx = W / 2 + cur.x;
+    const topY = -(blocks.length) * BH - camY;
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 2;
+    ctx.setLineDash([2, 9]);
+    ctx.beginPath(); ctx.moveTo(gx, cur.y - camY + BH); ctx.lineTo(gx, topY); ctx.stroke();
+    ctx.setLineDash([]);
+    drawBlock(cur.x, cur.y, cur.w, blockHue(blocks.length), flash);
+  }
+  if (state === 'fall' && fallAnim) {
+    const e = fallAnim.t * fallAnim.t;
+    drawBlock(fallAnim.bx, -blocks.length * BH - BH - HOVER + e * HOVER, fallAnim.bw, blockHue(blocks.length), false);
+  }
+
+  // HUD — score
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.font = '200 54px "Avenir Next","Segoe UI",system-ui,sans-serif';
+  ctx.fillText(String(level), W / 2, 92);
+  ctx.font = '500 11px "Avenir Next","Segoe UI",system-ui,sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  const ls = 3;
+  ctx.save(); ctx.letterSpacing = ls + 'px';
+  ctx.fillText('BEST ' + best, W / 2, 118);
+  ctx.restore();
+  // wind indicator text from level 8
+  if (level >= 8 && state === 'play') {
+    const w = windNow();
+    ctx.fillStyle = w.on ? 'rgba(255,120,120,0.9)' : 'rgba(255,255,255,0.45)';
+    ctx.font = '500 11px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.save(); ctx.letterSpacing = '3px';
+    ctx.fillText(w.on ? (gustDir > 0 ? 'WIND →' : '← WIND') : 'WIND CALM', W / 2, 142);
+    ctx.restore();
+  }
+  // milestone banner
+  if (bannerT > 0) {
+    const a = Math.min(1, bannerT / 0.6, (2.2 - bannerT) / 0.4 + 0.2);
+    ctx.fillStyle = `rgba(255,255,255,${(a * 0.95).toFixed(3)})`;
+    ctx.font = '200 30px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.save(); ctx.letterSpacing = '6px';
+    ctx.fillText(banner, W / 2, H * 0.42);
+    ctx.restore();
+  }
+  // combo
+  if (combo >= 2 && state === 'play') {
+    ctx.fillStyle = 'rgba(255,220,150,0.9)';
+    ctx.font = '600 15px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.save(); ctx.letterSpacing = '2px';
+    ctx.fillText('PERFECT ×' + combo, W / 2, H * 0.24);
+    ctx.restore();
+  }
+  // mute toggle (tiny)
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.font = '500 11px "Avenir Next","Segoe UI",system-ui,sans-serif';
+  ctx.save(); ctx.letterSpacing = '2px';
+  ctx.fillText(muted ? 'UNMUTE' : 'MUTE', W - 16, 30);
+  ctx.restore();
+
+  if (state === 'title') {
+    ctx.fillStyle = 'rgba(4,6,15,0.45)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.font = '200 44px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.save(); ctx.letterSpacing = '10px';
+    ctx.fillText('STACK TWIST', W / 2 + 5, H * 0.4);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.font = '400 15px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    const pulse = 0.55 + 0.25 * Math.sin(titleT * 3);
+    ctx.fillStyle = `rgba(255,255,255,${pulse.toFixed(3)})`;
+    ctx.fillText('tap to begin', W / 2, H * 0.4 + 44);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '400 12px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.fillText('tap drops the block · mind the wind from level 8', W / 2, H * 0.4 + 74);
+  }
+  if (state === 'over') {
+    const a = Math.min(1, overT / 0.5);
+    ctx.fillStyle = `rgba(4,6,15,${(a * 0.55).toFixed(3)})`; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+    ctx.font = '200 40px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.save(); ctx.letterSpacing = '8px';
+    ctx.fillText('GAME OVER', W / 2 + 4, H * 0.36);
+    ctx.restore();
+    ctx.font = '200 64px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.fillText(String(level), W / 2, H * 0.36 + 84);
+    ctx.font = '500 12px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.fillStyle = `rgba(255,255,255,${(a * 0.6).toFixed(3)})`;
+    ctx.save(); ctx.letterSpacing = '3px';
+    ctx.fillText('BEST ' + best, W / 2, H * 0.36 + 116);
+    ctx.restore();
+    const pulse = 0.55 + 0.25 * Math.sin(titleT * 3);
+    ctx.fillStyle = `rgba(255,255,255,${(a * pulse).toFixed(3)})`;
+    ctx.font = '400 15px "Avenir Next","Segoe UI",system-ui,sans-serif';
+    ctx.fillText('tap to rebuild', W / 2, H * 0.36 + 160);
+  }
+}
+
+// ---------- input ----------
+function onTap(x, y) {
+  ac();
+  // mute toggle hit?
+  if (x > W - 90 && y < 56) { muted = !muted; return; }
+  if (state === 'title') { newGame(); return; }
+  if (state === 'over') { if (overT > 0.6) newGame(); return; }
+  if (state === 'play') dropBlock();
+}
+cv.addEventListener('pointerdown', e => { e.preventDefault(); onTap(e.clientX, e.clientY); });
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault());
+
+// ---------- main loop ----------
+state = 'title';
+blocks = [{ x: 0, w: BLOCK_W0 }];
+debris = []; parts = [];
+camY = -H * 0.35; level = 0; combo = 0;
+best = parseInt(localStorage.getItem('stacktwist_best') || '0', 10) || 0;
+windT = 0; gustDir = 1; flagWave = 0; bannerT = 0; perfectFlashT = 0;
+spawnMover(1);
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (state !== 'title') update(dt);
+  else { titleT += dt; }
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+window.STACKTWIST = { get state() { return state; }, get level() { return level; }, get moverX() { return cur ? cur.x : null; }, dropBlock, newGame };
+</script>
+</body>
+</html>
