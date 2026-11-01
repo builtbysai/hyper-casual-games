@@ -14,7 +14,7 @@ Built by Hans + Bug. Web-first, one-touch, portrait.
 ## Games
 | # | Game | Mechanic | Status |
 |---|------|----------|--------|
-| 01 | *TBD* | *you pick* | idea stage |
+| 01 | Stack Twist | tap-timing tower vs wind gusts | live |
 
 ## Reference
 - `docs/Crushing_Hyper_Casual_v1.3.pdf` — the playbook.
