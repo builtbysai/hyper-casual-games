@@ -145,19 +145,28 @@ function spawnBlock() {
 }
 
 // ---------- wind ----------
-let windT = 0, windVal = 0, windDir = 1, gustSeed = 0;
+let windT = 0, windVal = 0, windDir = 1, nextWindDir = 1, prevCyc = 0, gustSeed = 0;
 function windUpdate(dt) {
   windT += dt;
+  const cyc = (windT % 7) / 7;
+  if (cyc < prevCyc) nextWindDir = Math.random() < 0.5 ? 1 : -1; // decide next gust at cycle start
+  prevCyc = cyc;
   if (tower.length < 8) { windVal += (0 - windVal) * Math.min(1, dt * 2); return; }
   // calm -> gust -> calm waves, ~7s period
-  const cyc = (windT % 7) / 7;
   let target = 0;
   if (cyc > 0.25 && cyc < 0.6) {
     target = Math.sin((cyc - 0.25) / 0.35 * Math.PI);
-    if (cyc - dt / 7 <= 0.25) { windDir = Math.random() < 0.5 ? 1 : -1; gustSeed = Math.random() * 10; }
+    if (cyc - dt / 7 <= 0.25) { windDir = nextWindDir; gustSeed = Math.random() * 10; }
   }
   const strength = Math.min(1.5, 0.5 + tower.length * 0.03);
   windVal += (target * strength * windDir - windVal) * Math.min(1, dt * 2.5);
+}
+function gustForecast() {
+  const cyc = (windT % 7) / 7;
+  if (tower.length < 8) return null;
+  if (cyc > 0.25 && cyc < 0.6) return null; // already gusting
+  const until = ((0.25 - cyc + 1) % 1) * 7;
+  return until <= 2.2 ? { secs: until, dir: nextWindDir } : null;
 }
 
 // wind streak particles (world space around tower top)
@@ -381,23 +390,26 @@ function draw() {
       }
     }
   }
-  // flag on tower top
-  {
+  // summit flag — planted only when the run ends
+  if (state === 'over') {
     const top = tower[tower.length - 1];
     const a = { x: 0, y: 0, d: 0 };
-    if (project(top.x + top.w / 2 - 0.1, tower.length * BH + BH, top.z + top.d / 2 - 0.1, a)) {
-      const fh = Math.min(W, H) * 0.09;
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2;
+    if (project(top.x, tower.length * BH + BH, top.z, a)) {
+      const fh = Math.min(W, H) * 0.11;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y - fh); ctx.stroke();
-      const wlen = fh * (0.35 + Math.min(1, Math.abs(windVal)) * 0.65);
-      const wdir = windVal >= 0 ? 1 : -1;
-      const wave = Math.sin(camT * 9) * 3 * Math.min(1, Math.abs(windVal) + 0.15);
-      ctx.fillStyle = '#e0495f';
+      const wlen = fh * 0.85;
+      const wave = Math.sin(camT * 7) * 3;
+      ctx.fillStyle = '#ffd23d';
       ctx.beginPath();
       ctx.moveTo(a.x, a.y - fh);
-      ctx.lineTo(a.x + wdir * wlen, a.y - fh + fh * 0.22 + wave);
-      ctx.lineTo(a.x, a.y - fh + fh * 0.44);
+      ctx.lineTo(a.x + wlen, a.y - fh + fh * 0.2 + wave);
+      ctx.lineTo(a.x, a.y - fh + fh * 0.4);
       ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#0b1026';
+      ctx.font = '700 ' + Math.round(fh * 0.22) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(score), a.x + wlen * 0.42, a.y - fh + fh * 0.27 + wave * 0.4);
     }
   }
   ctx.restore();
@@ -415,6 +427,13 @@ function draw() {
       ctx.fillRect(W / 2 - 60, 120, 120, 3);
       ctx.fillStyle = '#e0495f';
       ctx.fillRect(W / 2 - 60, 120, 120 * Math.min(1, s / 1.5), 3);
+    } else {
+      const fc = gustForecast();
+      if (fc) {
+        ctx.fillStyle = 'rgba(255,210,61,0.85)';
+        ctx.font = '600 12px ui-monospace, monospace';
+        ctx.fillText(fc.dir > 0 ? 'gust → soon' : '← gust soon', W / 2, 120);
+      }
     }
   }
 
