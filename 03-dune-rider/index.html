@@ -56,6 +56,14 @@ function buzz(ms) {
   try { if (typeof navigator.vibrate === 'function') navigator.vibrate(ms); } catch (e) {}
 }
 
+// audio cleanup: suspend on tab hide / window blur / page close, resume on return
+function audioSuspend() { try { if (AC && AC.state === 'running') AC.suspend(); } catch (e) {} }
+function audioResume() { try { if (AC && AC.state === 'suspended' && !muted) AC.resume(); } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (document.hidden) audioSuspend(); else audioResume(); });
+window.addEventListener('blur', audioSuspend);
+window.addEventListener('focus', audioResume);
+window.addEventListener('pagehide', audioSuspend);
+
 // ---------- audio ----------
 let AC = null, windGain = null, windFilter = null, muted = false;
 function initAudio() {
@@ -380,6 +388,7 @@ function gameOver() {
 // ---------- render ----------
 function render() {
   const pal = nightPal();
+  const rspd = Math.hypot(rider.vx, rider.vy);
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, pal.top); g.addColorStop(1, pal.bot);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
@@ -435,7 +444,7 @@ function render() {
         const wy = duneY(wx, 0) - cam.y;
         if (sx === -10) ctx.moveTo(sx, wy); else ctx.lineTo(sx, wy);
       }
-      ctx.strokeStyle = pal.glow; ctx.globalAlpha = 0.42; ctx.lineWidth = 12; ctx.stroke();
+      ctx.strokeStyle = pal.glow; ctx.globalAlpha = (0.34 + Math.min(0.36, rspd / 4200)).toFixed(2); ctx.lineWidth = 12; ctx.stroke();
       ctx.globalAlpha = 1; ctx.lineWidth = 3.5; ctx.stroke();
       // faint ridge echo below
       ctx.strokeStyle = pal.ridge; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
@@ -479,18 +488,23 @@ function render() {
     }
   }
 
-  // rider: bright comet dot
-  const rg = ctx.createRadialGradient(rx, ry, 1, rx, ry, 46);
+  // rider: comet droplet oriented along velocity — the shape tells the physics.
+  // diving (holding on surface) = pressed flat and wide; flying fast = stretched.
+  const rang = rspd > 30 ? Math.atan2(rider.vy, rider.vx) : 0;
+  const diving = holding && !rider.air;
+  ctx.save();
+  ctx.translate(rx, ry);
+  ctx.rotate(rang);
+  ctx.scale(diving ? 1.45 : 1 + Math.min(0.8, rspd / 2400), diving ? 0.68 : 1 - Math.min(0.22, rspd / 7000));
+  const rg = ctx.createRadialGradient(0, 0, 1, 0, 0, 46);
   rg.addColorStop(0, 'rgba(255,255,255,1)');
   rg.addColorStop(0.3, 'rgba(180,245,255,0.85)');
   rg.addColorStop(1, 'rgba(120,200,255,0)');
   ctx.fillStyle = rg;
-  ctx.beginPath(); ctx.arc(rx, ry, 26, 0, 6.29); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, 46, 0, 6.29); ctx.fill();
   ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  if (holding && !rider.air) ctx.ellipse(rx, ry, RIDER_R * 1.35, RIDER_R * 0.72, 0, 0, 6.29);
-  else ctx.arc(rx, ry, RIDER_R, 0, 6.29);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, RIDER_R, 0, 6.29); ctx.fill();
+  ctx.restore();
 
   // coach hint: teaches the loop in the first seconds
   if (state === 'play' && coachStage < 2) {

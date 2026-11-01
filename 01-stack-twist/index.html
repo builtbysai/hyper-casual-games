@@ -110,6 +110,15 @@ document.getElementById('mute').addEventListener('click', e => {
 });
 function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
+// audio cleanup: suspend on tab hide / window blur / page close, resume on return
+function audioSuspend() { try { if (AC && AC.state === 'running') AC.suspend(); } catch (e) {} }
+function audioResume() { try { if (AC && AC.state === 'suspended' && !muted) AC.resume(); } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (document.hidden) audioSuspend(); else audioResume(); });
+window.addEventListener('blur', audioSuspend);
+window.addEventListener('focus', audioResume);
+window.addEventListener('pagehide', audioSuspend);
+
+
 // ---------- game state ----------
 const tower = [];   // {x, z, w, d} — y = index * BH
 let level = 0, combo = 0, score = 0, best = 0;

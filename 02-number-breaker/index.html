@@ -86,6 +86,15 @@ const sOver = () => { tone(320, 0.5, 'sawtooth', 0.1, 70); };
 const sClick = () => tone(700, 0.05, 'sine', 0.07);
 function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
 
+// audio cleanup: suspend on tab hide / window blur / page close, resume on return
+function audioSuspend() { try { if (AC && AC.state === 'running') AC.suspend(); } catch (e) {} }
+function audioResume() { try { if (AC && AC.state === 'suspended' && !muted) AC.resume(); } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (document.hidden) audioSuspend(); else audioResume(); });
+window.addEventListener('blur', audioSuspend);
+window.addEventListener('focus', audioResume);
+window.addEventListener('pagehide', audioSuspend);
+
+
 // ---------- layout ----------
 const COLS = 7;
 let cell = 0, gridX = 0, topY = 0, deathY = 0, launchY = 0;
