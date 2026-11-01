@@ -22,12 +22,16 @@
 <script>
 'use strict';
 /* NUMBER BREAKER — hyper-casual #02.
- * Model: Ballz (Ketchapp) — swipe to aim, release to launch a bouncing volley;
+ * Model: Ballz (Ketchapp) — PULL-BACK SLINGSHOT to launch a bouncing volley
+ * (Hans: inverse the controls — pull to release, Angry Birds model);
  * numbered blocks descend each volley; +1 pickups grow the volley.
+ * Press anywhere, drag DOWN/BACK to stretch the band, release to fire.
+ * Pull distance = power, pull angle = launch angle.
  * Improve: 2048-STYLE MERGING. Balls carry tiers (1,2,4,8...). Two balls of
  * equal tier that collide mid-flight merge into the next tier, doubling
- * damage, with flash + ring + rising chime. Bank balls into each other.
- * One touch (swipe). Portrait. No buttons except a tiny mute toggle.
+ * damage, with flash + ring + rising chime. Same-tier balls attract gently
+ * so merges feel earned; chained merges build a streak popup.
+ * One touch (pull). Portrait. No buttons except a tiny mute toggle.
  */
 const cv = document.getElementById('g');
 const ctx = cv.getContext('2d');
@@ -94,7 +98,8 @@ function layout() {
 
 // ---------- state ----------
 const TIER_COLORS = ['#dfe9ff', '#41d9ff', '#2dffa8', '#ffd23d', '#ff8a3d', '#ff3d6e', '#c44dff', '#9d6bff'];
-const BALL_SPEED = 1000, MAX_BALLS = 120;
+let BALL_SPEED = 1000;
+const MAX_BALLS = 120, MAX_PULL = 230;
 let blocks = [];        // {col,row,num,max,pop,flash}
 let pickups = [];       // {col,row,taken}
 let balls = [];         // {x,y,vx,vy,tier,r,active,returned,lowT}
@@ -104,7 +109,9 @@ let floats = [];        // {x,y,txt,life,color,size}
 let volley = 0, ballCount = 2, score = 0;
 let best = parseInt(localStorage.getItem('nb_best') || '0', 10) || 0;
 let phase = 'aim';      // aim | flying | over
-let launcherX = 0, aimDir = null, aiming = false;
+let launcherX = 0, aiming = false;
+let pullStart = null, pullPos = null, pullDir = null, pullPower = 0;
+let mergeStreak = 0, mergeStreakT = 0;
 let launchQueue = 0, launchT = 0, launched = 0;
 let launchDir = { x: 0, y: -1 };
 let firstReturnX = null, mergeCount = 0, lastProg = 0;
@@ -153,7 +160,7 @@ function spawnRow(v) {
 function reset() {
   blocks = []; pickups = []; balls = []; particles = []; rings = []; floats = [];
   volley = 0; ballCount = 2; score = 0;
-  phase = 'aim'; aiming = false; aimDir = null;
+  phase = 'aim'; aiming = false; pullStart = pullPos = pullDir = null; pullPower = 0;
   launchQueue = 0; launched = 0; volleyT = 0;
   danger = false; warned = false; shake = 0;
   launcherX = W / 2;
@@ -163,9 +170,11 @@ function reset() {
   spawnRow(1);
 }
 
-function startVolley(dir) {
+function startVolley(dir, speed) {
   volley++;
   phase = 'flying';
+  BALL_SPEED = speed || 1000;
+  mergeStreak = 0; mergeStreakT = 0;
   launchDir = { x: dir.x, y: dir.y };
   launchQueue = ballCount; launchT = 0; launched = 0;
   firstReturnX = null;
@@ -279,8 +288,19 @@ function mergeBalls() {
       const c = balls[j];
       if (!c.active || c.returned || c.tier !== a.tier) continue;
       const dx = c.x - a.x, dy = c.y - a.y;
+      const d2 = dx * dx + dy * dy;
+      // magnet: same-tier balls drift toward each other so merges feel earned
+      const MAG = 130;
+      if (d2 < MAG * MAG && d2 > 1) {
+        const md = Math.sqrt(d2), mpull = 620 * (1 - md / MAG);
+        const px = dx / md * mpull * 0.016, py = dy / md * mpull * 0.016;
+        a.vx += px; a.vy += py; c.vx -= px; c.vy -= py;
+        const sa = Math.hypot(a.vx, a.vy) || 1, sc = Math.hypot(c.vx, c.vy) || 1;
+        a.vx = a.vx / sa * BALL_SPEED; a.vy = a.vy / sa * BALL_SPEED;
+        c.vx = c.vx / sc * BALL_SPEED; c.vy = c.vy / sc * BALL_SPEED;
+      }
       const rr = a.r + c.r + 4;
-      if (dx * dx + dy * dy > rr * rr) continue;
+      if (d2 > rr * rr) continue;
       if (balls.filter(x => x.active && !x.returned).length > MAX_BALLS) continue;
       // merge!
       const nt = a.tier + 1;
@@ -293,10 +313,15 @@ function mergeBalls() {
       a.r = cell * 0.085 + nt * 0.9;
       c.returned = true; c.active = false; c.consumed = true; // merged away
       mergeCount++;
+      if (mergeStreakT > 0) mergeStreak++; else mergeStreak = 1;
+      mergeStreakT = 1.4;
+      if (mergeStreak >= 2) {
+        floats.push({ x: mx, y: my - 36, txt: 'MERGE x' + mergeStreak, life: 1, color: '#ffd23d', size: 19 });
+      }
       rings.push({ x: mx, y: my, r: 6, vr: 320, life: 0.45, maxLife: 0.45, color: tierColor(nt) });
       burst(mx, my, tierColor(nt), 10, 220);
       floats.push({ x: mx, y: my - 14, txt: 'x' + tierDamage(nt), life: 0.9, color: tierColor(nt), size: 16 });
-      sMerge(nt); buzz(10); lastProg = volleyT;
+      sMerge(nt + mergeStreak); buzz(10); lastProg = volleyT;
       break;
     }
   }
@@ -325,6 +350,7 @@ function physics(dt) {
     }
   }
   volleyT += dt;
+  if (mergeStreakT > 0) { mergeStreakT -= dt; if (mergeStreakT <= 0) mergeStreak = 0; }
   let activeCount = 0;
   for (const b of balls) {
     if (!b.active || b.returned) continue;
@@ -355,7 +381,6 @@ function physics(dt) {
 
 // ---------- input ----------
 const muteBox = { x: 0, y: 0, w: 64, h: 34 };
-let pDown = null, pMoved = false;
 function canvasPos(e) {
   const r = cv.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -368,38 +393,45 @@ cv.addEventListener('pointerdown', e => {
   }
   if (phase === 'over') { sClick(); reset(); return; }
   if (phase !== 'aim') return;
-  pDown = p; pMoved = false; aiming = true;
+  pullStart = p; pullPos = p; pullDir = null; pullPower = 0; aiming = true;
   cv.setPointerCapture(e.pointerId);
 });
 cv.addEventListener('pointermove', e => {
-  if (!pDown || !aiming) return;
-  const p = canvasPos(e);
-  if (Math.hypot(p.x - pDown.x, p.y - pDown.y) > 8) pMoved = true;
-  updateAim(p);
+  if (!pullStart || !aiming) return;
+  pullPos = canvasPos(e);
+  updatePull();
 });
-cv.addEventListener('pointerup', e => {
-  if (!pDown) return;
-  const wasAiming = aiming;
-  aiming = false; pDown = null;
-  if (phase === 'aim' && wasAiming && aimDir) {
-    startVolley(aimDir);
+function endPull(fire) {
+  const dir = pullDir, power = pullPower;
+  aiming = false; pullStart = null; pullPos = null; pullDir = null; pullPower = 0;
+  if (fire && phase === 'aim' && dir && power > 0.14) {
+    startVolley(dir, 780 + power * 520);
+    shake = Math.max(shake, 5);
+    noiseBurst(0.07, 0.16, 2600);
+    buzz(12);
   }
-  aimDir = null;
-});
-cv.addEventListener('pointercancel', () => { aiming = false; pDown = null; aimDir = null; });
+}
+cv.addEventListener('pointerup', () => endPull(true));
+cv.addEventListener('pointercancel', () => endPull(false));
 
-function updateAim(p) {
-  let dx = p.x - launcherX, dy = p.y - launchY;
-  if (dy > -12) dy = -12; // keep it upward
-  const d = Math.hypot(dx, dy) || 1;
-  aimDir = { x: dx / d, y: dy / d };
+// pull-back slingshot: press anywhere, drag DOWN/BACK to stretch the band,
+// release to fire. launch dir = press->finger inverted; pull length = power.
+function updatePull() {
+  let dx = pullStart.x - pullPos.x, dy = pullStart.y - pullPos.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 12) { pullDir = null; pullPower = 0; return; }
+  dx /= d; dy /= d;
+  if (dy > -0.2) { dy = -0.2; const n = Math.hypot(dx, dy); dx /= n; dy /= n; } // keep it upward
+  pullDir = { x: dx, y: dy };
+  pullPower = Math.min(1, d / MAX_PULL);
+  if (Math.random() < 0.25) tone(180 + pullPower * 320, 0.03, 'sine', 0.03); // tension tick
 }
 
 // aim preview with wall bounces
 function aimPath() {
-  if (!aimDir) return [];
+  if (!pullDir) return [];
   const pts = [];
-  let x = launcherX, y = launchY, dx = aimDir.x, dy = aimDir.y;
+  let x = launcherX, y = launchY, dx = pullDir.x, dy = pullDir.y;
   for (let i = 0; i < 24; i++) {
     x += dx * 26; y += dy * 26;
     if (x < 6) { x = 6; dx = Math.abs(dx); }
@@ -498,8 +530,31 @@ function drawLauncher(t) {
   ctx.font = '500 13px ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.fillText('x' + ballCount, launcherX, launchY + 30);
+  // slingshot band + pulled ball + power arc
+  if (aiming && pullStart && pullPos && phase === 'aim' && pullPower > 0.02) {
+    ctx.strokeStyle = `rgba(255,210,61,${(0.35 + pullPower * 0.5).toFixed(2)})`;
+    ctx.lineWidth = 2 + pullPower * 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pullStart.x - 7, pullStart.y);
+    ctx.lineTo(pullPos.x, pullPos.y);
+    ctx.moveTo(pullStart.x + 7, pullStart.y);
+    ctx.lineTo(pullPos.x, pullPos.y);
+    ctx.stroke();
+    const bc = tierColor(0);
+    ctx.save();
+    ctx.shadowColor = bc; ctx.shadowBlur = 10 + pullPower * 18;
+    ctx.fillStyle = bc;
+    ctx.beginPath(); ctx.arc(pullPos.x, pullPos.y, cell * 0.085 + pullPower * 4, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(launcherX, launchY, 26, Math.PI * 0.75, Math.PI * 0.75 + Math.PI * 1.5 * pullPower);
+    ctx.stroke();
+  }
   // aim preview
-  if (aiming && aimDir && phase === 'aim') {
+  if (aiming && pullDir && phase === 'aim') {
     const pts = aimPath();
     ctx.fillStyle = 'rgba(242,245,247,0.75)';
     for (let i = 0; i < pts.length; i++) {
@@ -531,7 +586,7 @@ function drawHUD(t) {
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(242,245,247,0.5)';
     ctx.font = '500 14px ui-monospace, monospace';
-    ctx.fillText('drag to aim — release to launch', W / 2, H * 0.52);
+    ctx.fillText('pull back — release to launch', W / 2, H * 0.52);
     ctx.fillStyle = 'rgba(65,217,255,0.5)';
     ctx.fillText('equal balls merge mid-flight', W / 2, H * 0.52 + 24);
   }
@@ -634,9 +689,9 @@ window.NB = {
   get blocks() { return blocks.length; },
   stats: { merges: 0 },
   get merges() { return mergeCount; },
-  launchAt(dx, dy) {
+  launchAt(dx, dy, speed) {
     const d = Math.hypot(dx, dy) || 1;
-    startVolley({ x: dx / d, y: dy / d });
+    startVolley({ x: dx / d, y: dy / d }, speed);
   },
   testMerge() {
     // two tier-0 balls on collision course: verifies the merge path
