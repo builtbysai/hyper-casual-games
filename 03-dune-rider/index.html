@@ -122,10 +122,11 @@ let P = {};                 // dune phase params per layer
 let state = 'ready';        // ready | play | over
 let holding = false;
 let rider, cam, trail, parts, floats, banner;
-let dist, bestMult, runMult, wasHigh, lastCloseT, elapsed;
+let dist, bestMult, runMult, wasHigh, lastCloseT, elapsed, perfectStreak;
 let stallT = 0, stallWarned = false;
 let coachStage = 0, dustT = 0;
-let nextMilestone, overScore, newBest;
+let mileIdx, overScore, newBest;
+const MILES = [100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000, 7000, 10000];
 let best = 0;
 try { best = parseInt(localStorage.getItem('drider_best') || '0', 10) || 0; } catch (e) {}
 
@@ -152,7 +153,7 @@ function newRun() {
   cam = { x: sx - W * 0.3, y: y0 - H * 0.45 };
   trail = []; parts = []; floats = []; banner = null;
   dist = 0; bestMult = 1; runMult = 1; wasHigh = true; lastCloseT = -9; elapsed = 0;
-  nextMilestone = 500; overScore = 0; newBest = false; stallT = 0; stallWarned = false;
+  mileIdx = 0; perfectStreak = 0; overScore = 0; newBest = false; stallT = 0; stallWarned = false;
   coachStage = 0; dustT = 0;
 }
 
@@ -282,16 +283,18 @@ function step(dt) {
             rider.air = false;
             rider.vt = spd;
             rider.y = surf - RIDER_R;
-            sfx.perfect(runMult); buzz(20);
+            perfectStreak++;
+            sfx.perfect(perfectStreak); buzz(20);
             ring(rider.x, surf, '#ffffff');
-            addFloat(rider.x, surf - 46, 'PERFECT', '#ffffff', 24);
+            if (perfectStreak > 1) ring(rider.x, surf, '#9fd8ff');
+            addFloat(rider.x, surf - 46, 'PERFECT' + (perfectStreak > 1 ? ' x' + perfectStreak : ''), '#ffffff', 24 + Math.min(10, perfectStreak * 2));
             dust(rider.x, surf, 10, 220);
           } else {
             // SLOPPY — visibly the player's mistiming
             rider.air = false;
             rider.vt = spd * 0.7;
             rider.y = surf - RIDER_R;
-            runMult = 1;
+            runMult = 1; perfectStreak = 0;
             sfx.sloppy();
             addFloat(rider.x, surf - 46, 'SLOPPY', '#8a8aa3', 22);
             dust(rider.x, surf, 8, 180);
@@ -336,17 +339,19 @@ function step(dt) {
   trail.push({ x: rider.x, y: rider.y });
   if (trail.length > 46) trail.shift();
 
-  // camera with lookahead: rider stays left-of-center, never clipped
-  const look = clamp(rider.vx * 0.2, 0, 90);
-  cam.x += ((rider.x - W * 0.35 + look) - cam.x) * Math.min(1, 5 * dt);
+  // camera with lookahead: rider sits left, the next hill stays visible
+  const look = clamp(rider.vx * 0.3, 0, 170);
+  let targetX = rider.x - W * 0.34 + look;
+  targetX = Math.min(targetX, rider.x - 56); // rider never closer than 56px to the left edge
+  cam.x += (targetX - cam.x) * Math.min(1, 5 * dt);
   cam.y += ((rider.y - H * 0.42) - cam.y) * Math.min(1, 4 * dt);
 
   // distance / score (best distance counts; rolling back doesn't erase it)
   dist = Math.max(dist, rider.x / 48);
-  if (dist >= nextMilestone) {
-    banner = { txt: nextMilestone + 'm', life: 1.6, max: 1.6 };
+  if (mileIdx < MILES.length && dist >= MILES[mileIdx]) {
+    banner = { txt: MILES[mileIdx] + 'm', life: 1.6, max: 1.6 };
     sfx.milestone();
-    nextMilestone += 500;
+    mileIdx++;
   }
 
   // fx update
@@ -457,7 +462,10 @@ function render() {
       ctx.fillStyle = 'rgba(6,6,18,0.80)';
       ctx.fill();
     } else {
-      ctx.fillStyle = pal.dune;
+      const dg = ctx.createLinearGradient(0, 0, 0, H);
+      dg.addColorStop(0, pal.dune);
+      dg.addColorStop(1, '#05050a');
+      ctx.fillStyle = dg;
       ctx.fill();
       // luminous ridgeline
       ctx.beginPath();
@@ -579,6 +587,13 @@ function render() {
   ctx.fillStyle = 'rgba(255,255,255,0.92)';
   if (state === 'play' || state === 'over') {
     ctx.fillText(Math.floor(dist) + 'm', 18, 44);
+    if (best > 0) {
+      ctx.font = `300 ${Math.round(Math.min(14, W * 0.03))}px ui-monospace, Menlo, monospace`;
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillText('BEST ' + Math.floor(best) + 'm', 18, 64);
+      ctx.font = `300 ${Math.round(Math.min(30, W * 0.055))}px ui-monospace, Menlo, monospace`;
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    }
     if (runMult > 1 && state === 'play') {
       ctx.fillStyle = '#ffe14d';
       ctx.fillText('x' + runMult, 18, 78);

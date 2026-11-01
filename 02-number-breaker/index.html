@@ -120,6 +120,7 @@ let best = parseInt(localStorage.getItem('nb_best') || '0', 10) || 0;
 let phase = 'aim';      // aim | flying | over
 let launcherX = 0, aiming = false;
 let pullStart = null, pullPos = null, pullDir = null, pullPower = 0;
+let ballPos = { x: 0, y: 0 };
 let mergeStreak = 0, mergeStreakT = 0;
 let ffwd = false;
 const ffBox = { x: 0, y: 0, w: 64, h: 34 };
@@ -440,6 +441,9 @@ function updatePull() {
   if (dy > -0.35) { dy = -0.35; const n = Math.hypot(dx, dy); dx /= n; dy /= n; }
   pullDir = { x: dx, y: dy };
   pullPower = Math.min(1, d / MAX_PULL);
+  // the ball hangs off the launcher fork, dragged back along the pull
+  const bd = Math.min(d, MAX_PULL);
+  ballPos = { x: launcherX - (px / d) * bd, y: launchY - (py / d) * bd };
   if (Math.random() < 0.25) tone(180 + pullPower * 320, 0.03, 'sine', 0.03); // tension tick
 }
 
@@ -460,15 +464,6 @@ function aimPath() {
 }
 
 // ---------- draw ----------
-function drawGrid() {
-  ctx.strokeStyle = 'rgba(255,255,255,0.045)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let c = 1; c < COLS; c++) { ctx.moveTo(c * cell, topY - 46); ctx.lineTo(c * cell, deathY); }
-  const rows = Math.floor((deathY - topY) / cell);
-  for (let r = 0; r <= rows; r++) { ctx.moveTo(0, topY + r * cell); ctx.lineTo(W, topY + r * cell); }
-  ctx.stroke();
-}
 function drawDeathLine(t) {
   const pulse = danger ? (0.55 + 0.45 * Math.sin(t * 6)) : 0.8;
   ctx.strokeStyle = `rgba(255,77,77,${0.35 * pulse + 0.25})`;
@@ -558,27 +553,29 @@ function drawLauncher(t) {
   ctx.font = '500 13px ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.fillText('x' + ballCount, launcherX, launchY + 30);
-  // slingshot band + pulled ball + power arc
-  if (aiming && pullStart && pullPos && phase === 'aim' && pullPower > 0.02) {
+  // slingshot: fork at the launcher, band stretched to the pulled ball
+  if (aiming && pullPos && phase === 'aim' && pullPower > 0.02) {
+    const bx = ballPos.x, by = ballPos.y;
     ctx.strokeStyle = `rgba(255,210,61,${(0.35 + pullPower * 0.5).toFixed(2)})`;
     ctx.lineWidth = 2 + pullPower * 3;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(pullStart.x - 7, pullStart.y);
-    ctx.lineTo(pullPos.x, pullPos.y);
-    ctx.moveTo(pullStart.x + 7, pullStart.y);
-    ctx.lineTo(pullPos.x, pullPos.y);
+    ctx.moveTo(launcherX - 8, launchY - 6);
+    ctx.lineTo(bx, by);
+    ctx.moveTo(launcherX + 8, launchY - 6);
+    ctx.lineTo(bx, by);
     ctx.stroke();
     const bc = tierColor(0);
     ctx.save();
     ctx.shadowColor = bc; ctx.shadowBlur = 10 + pullPower * 18;
     ctx.fillStyle = bc;
-    ctx.beginPath(); ctx.arc(pullPos.x, pullPos.y, cell * 0.085 + pullPower * 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx, by, cell * 0.085 + pullPower * 4, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    // power arc around the fork
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(launcherX, launchY, 26, Math.PI * 0.75, Math.PI * 0.75 + Math.PI * 1.5 * pullPower);
+    ctx.arc(launcherX, launchY, 30, Math.PI * 0.7, Math.PI * 0.7 + Math.PI * 1.6 * pullPower);
     ctx.stroke();
   }
   // aim preview
@@ -625,9 +622,9 @@ function drawHUD(t) {
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(242,245,247,0.5)';
     ctx.font = '500 14px ui-monospace, monospace';
-    ctx.fillText('pull back — release to launch', W / 2, H * 0.52);
-    ctx.fillStyle = 'rgba(65,217,255,0.5)';
-    ctx.fillText('equal balls merge mid-flight', W / 2, H * 0.52 + 24);
+    ctx.fillText('pull back, release to launch', W / 2, launchY - 120);
+    ctx.fillStyle = 'rgba(65,217,255,0.45)';
+    ctx.fillText('equal balls merge mid-flight', W / 2, launchY - 100);
   }
 }
 function drawFx(dt, t) {
@@ -712,7 +709,6 @@ function frame(now) {
     // still animate fx
     surgeBanner = Math.max(0, surgeBanner - dt);
   }
-  drawGrid();
   drawBlocks(dt);
   drawBalls();
   drawDeathLine(t);
