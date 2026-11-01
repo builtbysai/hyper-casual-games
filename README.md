@@ -15,6 +15,7 @@ Built by Hans + Bug. Web-first, one-touch, portrait.
 | # | Game | Mechanic | Status |
 |---|------|----------|--------|
 | 01 | Stack Twist | tap-timing tower vs wind gusts | live |
+| 02 | Number Breaker | aim-and-merge ball breaker | live |
 
 ## Reference
 - `docs/Crushing_Hyper_Casual_v1.3.pdf` — the playbook.
