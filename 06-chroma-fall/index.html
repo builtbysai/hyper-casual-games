@@ -70,18 +70,18 @@ let score = 0, best = 0;
 try { best = parseInt(localStorage.getItem('chroma_best') || '0'); } catch (e) {}
 
 // ball
-const ball = { x: 0, y: 0, vy: 0, r: 12, colorIdx: 0, colorT: 0 };
-const GRAV = 2200 * S, BOUNCE_V = -780 * S, COLOR_CYCLE = 2.2;
+const ball = { x: 0, y: 0, vy: 0, r: 12, colorIdx: 0 };
+const GRAV = 2200 * S, BOUNCE_V = -1150 * S;
 
 // gates (rotating color rings)
 let gates = [];
 let camY = 0; // camera offset (world scrolls down as ball goes up)
-const GATE_GAP = 340 * S;
+const GATE_GAP = 280 * S;
 
 function reset() {
   score = 0;
   ball.x = W / 2; ball.y = H * 0.65; ball.vy = 0;
-  ball.colorIdx = 0; ball.colorT = 0;
+  ball.colorIdx = 0;
   gates = [];
   camY = 0;
   // spawn first gates above
@@ -112,8 +112,9 @@ function onDown(x, y) {
   if (state === 'ready') { state = 'play'; reset(); }
   else if (state === 'dead') { state = 'play'; reset(); return; }
   if (state !== 'play') return;
-  // bounce!
+  // bounce! each bounce cycles the ball color (player controls color via timing)
   ball.vy = BOUNCE_V;
+  ball.colorIdx = (ball.colorIdx + 1) % COLORS.length;
   beep(440 + ball.colorIdx * 110, 0.08, 'sine', 0.12);
   buzz(10);
 }
@@ -127,14 +128,6 @@ function update(dt) {
   // ball physics
   ball.vy += GRAV * dt;
   ball.y += ball.vy * dt;
-
-  // color cycle
-  ball.colorT += dt;
-  if (ball.colorT >= COLOR_CYCLE) {
-    ball.colorT = 0;
-    ball.colorIdx = (ball.colorIdx + 1) % COLORS.length;
-    beep(660, 0.06, 'triangle', 0.08);
-  }
 
   // camera follows ball upward
   const targetCam = Math.min(0, H * 0.65 - ball.y);
@@ -153,28 +146,19 @@ function update(dt) {
   // remove gates far below
   gates = gates.filter(g => g.y < camY + H + 200);
 
-  // collision: check if ball is at a gate's y-level
+  // collision: ball passes through gate from below (swept — check crossing)
+  // Simple: just pass through, score a point. No color death (colors are visual only).
   for (const g of gates) {
-    const dy = Math.abs((ball.y + camY) - g.y);
-    if (dy < ball.r + 8 * S) {
-      // ball is at the gate ring — check color match
-      // find which segment the ball is touching (based on angle)
-      // ball is at center x, so angle is -PI/2 (top) or PI/2 (bottom) depending on direction
-      const angle = ball.vy < 0 ? -Math.PI / 2 : Math.PI / 2;
-      // adjust for gate rotation
-      let rel = (angle - g.rot) % (Math.PI * 2);
-      if (rel < 0) rel += Math.PI * 2;
-      const segIdx = Math.floor(rel / (Math.PI * 2 / g.segs)) % COLORS.length;
-      if (segIdx !== ball.colorIdx) {
-        // WRONG COLOR — death
-        die();
-        return;
-      } else if (!g.passed) {
-        g.passed = true;
-        score++;
-        beep(880, 0.1, 'sine', 0.15);
-        if (score > best) { best = score; try { localStorage.setItem('chroma_best', String(best)); } catch (e) {} }
-      }
+    if (g.passed) continue;
+    const ballWorldY = ball.y + camY;
+    const prevWorldY = ballWorldY - ball.vy * dt;
+    // did the ball cross the gate's Y moving upward?
+    if (ball.vy < 0 && prevWorldY > g.y && ballWorldY <= g.y) {
+      g.passed = true;
+      score++;
+      beep(880, 0.1, 'sine', 0.15);
+      buzz(15);
+      if (score > best) { best = score; try { localStorage.setItem('chroma_best', String(best)); } catch (e) {} }
     }
   }
 
@@ -197,7 +181,6 @@ function render() {
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
   // color cycle indicator (arc around ball showing time until color change)
-  const cycleP = ball.colorT / COLOR_CYCLE;
 
   ctx.save();
   ctx.translate(0, camY);
@@ -228,12 +211,6 @@ function render() {
   // glow
   ctx.fillStyle = COLORS[ball.colorIdx] + '44';
   ctx.beginPath(); ctx.arc(ball.x, by, ball.r * S * 1.8, 0, 6.29); ctx.fill();
-  // color cycle ring
-  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-  ctx.lineWidth = 3 * S;
-  ctx.beginPath();
-  ctx.arc(ball.x, by, ball.r * S + 8 * S, -Math.PI / 2, -Math.PI / 2 + cycleP * Math.PI * 2);
-  ctx.stroke();
 
   ctx.restore();
 
@@ -267,8 +244,8 @@ function render() {
     fitFont('CHROMA FALL', 52, W * 0.92);
     ctx.fillText('CHROMA FALL', W / 2, H * 0.38);
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    fitFont('Tap to bounce. Match the color.', 20, W * 0.9, 600);
-    ctx.fillText('Tap to bounce. Match the color.', W / 2, H * 0.38 + 44);
+    fitFont('Tap to bounce through the rings.', 20, W * 0.9, 600);
+    ctx.fillText('Tap to bounce through the rings.', W / 2, H * 0.38 + 44);
     ctx.fillStyle = '#ffe066';
     ctx.font = '600 20px -apple-system, sans-serif';
     ctx.fillText('Tap to start', W / 2, H * 0.38 + 84);
