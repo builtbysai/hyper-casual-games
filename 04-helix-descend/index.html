@@ -108,7 +108,7 @@ const sfx = {
 };
 
 // ---------- game constants ----------
-const GRAV = 2600, BOUNCE_V = -980, SPRING_V = -1500;
+const GRAV = 2200, BOUNCE_V = -750, SPRING_V = -1300, MAX_FALL = 1400;
 const BALL_R = 14, PLAT_DY = 150;
 const TOWER_R = 46;
 const BEST_KEY = 'helix_best';
@@ -268,6 +268,8 @@ function onDeath(reason) {
 function step(dt) {
   ensurePlatforms();
   ball.vy += GRAV * dt;
+  if (ball.vy > MAX_FALL) ball.vy = MAX_FALL;
+  const prevY = ball.y;
   ball.y += ball.vy * dt;
 
   // camera follows downward only
@@ -275,12 +277,13 @@ function step(dt) {
   if (targetCam > camY) camY += (targetCam - camY) * Math.min(1, dt * 10);
 
   if (ball.vy > 0) {
-    // find the nearest platform at/below the ball's bottom
+    // swept collision: check the full path from prev to current (prevents tunneling at high speed)
+    const prevBy = prevY + BALL_R;
     const by = ball.y + BALL_R;
     let hit = null;
     for (const p of platforms) {
       if (p.gone) continue;
-      if (p.y >= ball.y - BALL_R && p.y <= by + 4) { hit = p; break; }
+      if (p.y >= prevY - BALL_R && p.y <= by + 4 && p.y >= prevBy - 2) { hit = p; break; }
     }
     if (hit) {
       const gapCenter = hit.gapA + hit.rot;
@@ -355,7 +358,7 @@ function onDown(x, y) {
 function onMove(x) {
   if (!dragging || state !== 'play') return;
   const dx = x - lastX; lastX = x;
-  const dRot = dx * 0.011;
+  const dRot = dx * 0.016;
   for (const p of platforms) p.rot += dRot;
   rotVel = dRot * 60; // carry a little inertia
 }
