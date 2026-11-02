@@ -3,18 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#1a1030">
+<meta name="theme-color" content="#0b1422">
+<meta name="description" content="A fast, tactile swipe-to-slice arcade game. Build a streak, dodge bombs, and trigger Frenzy.">
 <title>Slice Storm</title>
 <!-- SLICE-STORM-05 -->
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1030;
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0b1422;
     touch-action: none; -webkit-user-select: none; user-select: none;
     font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
   canvas { display: block; position: fixed; inset: 0; }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<canvas id="c" role="application" tabindex="0" aria-label="Slice Storm. Swipe or drag across fruit to slice. Avoid bombs. Press Space to start or restart, P to pause, M to mute."></canvas>
 <script>
 'use strict';
 // SLICE STORM — game 05. Model: Fruit Ninja. Swipe to slice.
@@ -128,7 +129,8 @@ let fruits = [], halves = [], parts = [], trail = [];
 let score = 0, best = 0, lives = 3, misses = 0;
 let combo = 0, maxCombo = 0;
 let frenzyT = 0, shakeT = 0, shakeMag = 0;
-let spawnT = 0, elapsed = 0, deadT = 0;
+let spawnT = 0, elapsed = 0, deadT = 0, ambientT = 0;
+let impactRings = [];
 let swipeCuts = 0, activePointer = null, lastWave = 0;
 let floatingTexts = [];
 try {
@@ -147,7 +149,7 @@ const FRUIT_DEF = [
 ];
 
 function reset() {
-  fruits = []; halves = []; parts = []; trail = []; floatingTexts = [];
+  fruits = []; halves = []; parts = []; trail = []; floatingTexts = []; impactRings = [];
   score = 0; lives = 3; misses = 0; combo = 0; maxCombo = 0;
   frenzyT = 0; shakeT = 0; spawnT = 0.25; elapsed = 0; deadT = 0;
   swipeCuts = 0; activePointer = null; swiping = false;
@@ -183,6 +185,7 @@ function spawnFruit() {
 function sliceFruit(f, angle) {
   f.sliced = true;
   const def = FRUIT_DEF[f.type];
+  impactRings.push({ x: f.x, y: f.y, r: f.r * 0.6, max: f.r * 1.85, life: 0.34, col: def.juice });
   // The cut line follows the swipe; the two pieces separate across it.
   const normal = angle + Math.PI / 2;
   const sp = 225 * S;
@@ -215,6 +218,7 @@ function onSlice(f) {
     shakeT = 0.35; shakeMag = 12;
     sfx.bomb(); buzz(70);
     burstAt(f.x, f.y, '#ff9d52', 26);
+    impactRings.push({ x: f.x, y: f.y, r: 8, max: f.r * 3.2, life: 0.5, col: '#ff786d' });
     addText('BOMB', '#ff786d', 28 * S, f.x, f.y - 36);
     combo = 0;
     if (lives <= 0) onDeath('bomb');
@@ -227,7 +231,7 @@ function onSlice(f) {
   score += pts;
   if (score > best) { best = score; saveBest(); }
   if (f.type === F_GOLDEN) {
-    sfx.golden();
+    sfx.golden(); buzz(25);
     addText('+' + pts + ' GOLD', '#ffe3a1', 25 * S, f.x, f.y - 46);
   } else {
     sfx.slice();
@@ -412,6 +416,11 @@ function step(dt) {
   }
   if (state === 'dead') deadT += dt;
   if (parts.length > 320) parts.splice(0, parts.length - 320);
+  for (let i = impactRings.length - 1; i >= 0; i--) {
+    const ring = impactRings[i]; ring.life -= dt;
+    ring.r += (ring.max - ring.r) * Math.min(1, dt * 11);
+    if (ring.life <= 0) impactRings.splice(i, 1);
+  }
 }
 
 // ---------- drawing ----------
@@ -424,6 +433,8 @@ function drawFruit(f) {
   ctx.scale(1 / Math.sqrt(sq), sq);
   ctx.rotate(f.rot * 0.12);
   const r = f.r;
+  ctx.shadowColor = 'rgba(0,0,0,.35)';
+  ctx.shadowBlur = 10 * S; ctx.shadowOffsetY = 5 * S;
   if (f.type === F_BOMB) {
     const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
     g.addColorStop(0, '#5a5a6a'); g.addColorStop(1, '#16161c');
@@ -431,8 +442,13 @@ function drawFruit(f) {
     ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.29); ctx.fill();
     ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.moveTo(0, -r); ctx.quadraticCurveTo(r * 0.4, -r * 1.4, r * 0.7, -r * 1.1); ctx.stroke();
-    ctx.fillStyle = '#ffcf3d';
+    ctx.shadowColor = '#ff9d52'; ctx.shadowBlur = 13;
+    ctx.fillStyle = '#ffb567';
     ctx.beginPath(); ctx.arc(r * 0.7, -r * 1.1, 5, 0, 6.29); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#f69b78';ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.moveTo(-r*.3,-r*.1);ctx.lineTo(r*.3,r*.42);
+    ctx.moveTo(r*.3,-r*.1);ctx.lineTo(-r*.3,r*.42);ctx.stroke();
   } else if (f.type === F_WATERMELON) {
     ctx.fillStyle = def.skin;
     ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.88, 0, 0, 6.29); ctx.fill();
@@ -478,34 +494,61 @@ function drawFruit(f) {
       }
     }
   }
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  if (f.type !== F_BOMB && f.type !== F_GOLDEN) {
+    ctx.strokeStyle = 'rgba(255,255,255,.27)';ctx.lineWidth=2.5*S;ctx.lineCap='round';
+    ctx.beginPath();ctx.arc(-r*.08,-r*.08,r*.73,3.65,4.93);ctx.stroke();
+  }
   ctx.restore();
 }
 
 function drawHalf(h) {
   const def = FRUIT_DEF[h.type];
-  ctx.save();
-  ctx.globalAlpha = clamp(h.life * 1.6, 0, 1);
-  ctx.translate(h.x, h.y);
-  ctx.rotate(h.cutAng + h.rot * 0.3);
   const r = h.r;
-  // half body: clipped circle showing the cut face
+  ctx.save();
+  ctx.globalAlpha = clamp(h.life * 1.4, 0, 1);
+  ctx.translate(h.x, h.y);
+  ctx.rotate(h.cutAng + h.rot * 0.24);
+  ctx.shadowColor = 'rgba(0,0,0,.25)';
+  ctx.shadowBlur = 10; ctx.shadowOffsetY = 5;
   ctx.beginPath();
   if (h.side < 0) ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2);
   else ctx.arc(0, 0, r, Math.PI / 2, Math.PI * 1.5);
   ctx.closePath();
-  const g = ctx.createRadialGradient(0, 0, r * 0.1, 0, 0, r);
-  if (h.type === F_BOMB) { g.addColorStop(0, '#4a4a55'); g.addColorStop(1, '#16161c'); }
-  else { g.addColorStop(0, '#ffffff'); g.addColorStop(0.35, def.flesh); g.addColorStop(1, def.skin); }
-  ctx.fillStyle = g;
-  ctx.fill();
-  // seeds for watermelon
+  const g = ctx.createRadialGradient(-r * 0.2, -r * 0.2, 1, 0, 0, r);
+  g.addColorStop(0, '#fff8df');
+  g.addColorStop(0.25, def.flesh);
+  g.addColorStop(0.88, def.flesh);
+  g.addColorStop(1, def.skin);
+  ctx.fillStyle = g; ctx.fill();
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.clip();
   if (h.type === F_WATERMELON) {
-    ctx.fillStyle = '#2a1a12';
-    for (let i = 0; i < 5; i++) {
-      ctx.beginPath();
-      ctx.ellipse(rnd(-r * 0.5, r * 0.5), rnd(-r * 0.4, r * 0.4), 3, 4.5, 0, 0, 6.29);
-      ctx.fill();
+    ctx.strokeStyle = '#28402c'; ctx.fillStyle = '#342522';
+    for (let i = -2; i <= 2; i++) {
+      const yy = i * r * 0.24;
+      const xx = (h.side < 0 ? 1 : -1) * r * 0.44;
+      ctx.save(); ctx.translate(xx, yy); ctx.rotate(0.25);
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 0.055, r * 0.095, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     }
+  } else if (h.type === F_KIWI) {
+    ctx.fillStyle = '#fbebc0';
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.23, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#2b3624';
+    for (let i = 0; i < 16; i++) {
+      const a = i * Math.PI / 8;
+      ctx.beginPath(); ctx.ellipse(Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55, r * .035, r * .065, a, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (h.type === F_ORANGE) {
+    ctx.strokeStyle = 'rgba(255,250,215,.45)'; ctx.lineWidth = 1.5 * S;
+    for (let i = 0; i < 9; i++) {
+      const a = i * Math.PI * 2 / 9;
+      ctx.beginPath(); ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); ctx.stroke();
+    }
+  } else if (h.type === F_APPLE) {
+    ctx.fillStyle = 'rgba(122,73,48,.8)';
+    ctx.beginPath(); ctx.ellipse(0, 0, r*.06, r*.15, 0.4, 0, Math.PI*2); ctx.fill();
   }
   ctx.restore();
 }
@@ -514,58 +557,74 @@ function drawTrail() {
   if (trail.length < 2) return;
   ctx.save();
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.shadowColor = '#b48cff'; ctx.shadowBlur = 18;
+  // A tapered blade has a soft colored bloom and a sharp white core.
   for (let i = 1; i < trail.length; i++) {
     const a = trail[i - 1], b = trail[i];
-    const life = 1 - b.age / 0.28;
-    ctx.globalAlpha = clamp(life, 0, 1) * 0.9;
-    ctx.strokeStyle = '#d9c6ff';
-    ctx.lineWidth = 2 + 9 * life;
+    const life = Math.max(0, 1 - b.age / 0.28);
+    ctx.globalAlpha = life * 0.65;
+    ctx.strokeStyle = '#74e5d6'; ctx.shadowColor = '#70f8e4';
+    ctx.shadowBlur = 18; ctx.lineWidth = (3 + 11 * life) * S;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    ctx.globalAlpha = life * 0.96;
+    ctx.shadowBlur = 3; ctx.strokeStyle = '#fffbed';
+    ctx.lineWidth = (1 + 3.1 * life) * S;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   ctx.restore();
 }
 
 function drawHUD() {
+  if (state !== 'play' && state !== 'paused') return;
+  const top = Math.max(12, 12 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-top')) || 0));
   ctx.save();
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#fff';
-  ctx.font = '800 44px -apple-system, "Segoe UI", system-ui, sans-serif';
-  ctx.fillText(String(score), 18, 58);
-  ctx.font = '600 17px -apple-system, "Segoe UI", system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.65)';
-  ctx.fillText('BEST ' + best, 18, 84);
-  // lives
+  ctx.font = '650 11px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = '#98abae';
+  ctx.fillText('S C O R E', 20, top + 15);
+  ctx.fillStyle = '#fff6e7';
+  ctx.font = '800 42px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(String(score), 18, top + 57);
+  ctx.fillStyle = '#9daab2';
+  ctx.font = '600 12px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillText('BEST ' + best, 20, top + 77);
+
   ctx.textAlign = 'right';
-  ctx.font = '800 26px -apple-system, "Segoe UI", system-ui, sans-serif';
-  ctx.fillStyle = '#ff8a8a';
-  let hearts = '';
-  for (let i = 0; i < lives; i++) hearts += '●';
-  ctx.fillText(hearts, W - 70, 52);
-  // misses as X marks
-  ctx.fillStyle = 'rgba(255,138,138,0.5)';
-  ctx.font = '700 20px -apple-system, "Segoe UI", system-ui, sans-serif';
-  let xs = '';
-  for (let i = 0; i < misses; i++) xs += '✕ ';
-  ctx.fillText(xs, W - 70, 78);
-  // combo
-  const mult = Math.min(5, 1 + ((combo / 8) | 0));
-  if (mult > 1 && state === 'play') {
-    ctx.textAlign = 'center';
-    ctx.font = '800 30px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = '#8ef7ff';
-    ctx.shadowColor = '#8ef7ff'; ctx.shadowBlur = 16;
-    ctx.fillText('COMBO x' + mult, W / 2, 60);
-    ctx.shadowBlur = 0;
+  ctx.font = '650 10px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = '#9daab2';
+  ctx.fillText('LIVES', W - 78, top + 12);
+  for (let i = 0; i < 3; i++) {
+    const x = W - 134 + i * 23, y = top + 28;
+    ctx.fillStyle = i < lives ? '#ee8277' : 'rgba(238,130,119,.13)';
+    ctx.strokeStyle = i < lives ? '#ffaea1' : 'rgba(238,130,119,.34)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
-  // frenzy banner
-  if (frenzyT > 0) {
+  ctx.fillStyle = '#9daab2';
+  ctx.fillText('MISSES', W - 78, top + 59);
+  for (let i = 0; i < 3; i++) {
+    const x = W - 134 + i * 23, y = top + 73;
+    ctx.strokeStyle = i < misses ? '#ee8277' : 'rgba(157,170,178,.32)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x - 4, y - 4); ctx.lineTo(x + 4, y + 4);
+    ctx.moveTo(x + 4, y - 4); ctx.lineTo(x - 4, y + 4); ctx.stroke();
+  }
+
+  const mult = Math.min(5, 1 + Math.floor(combo / 8));
+  if (mult > 1) {
     ctx.textAlign = 'center';
-    ctx.font = '800 24px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = '#ff9df5';
-    ctx.shadowColor = '#ff9df5'; ctx.shadowBlur = 20;
-    ctx.fillText('FRENZY ' + frenzyT.toFixed(1) + 's', W / 2, 96);
-    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#a9f2d7';
+    ctx.font = '800 18px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('STREAK  ×' + mult, W / 2, H - 38);
+  }
+  if (frenzyT > 0) {
+    const barW = Math.min(W * 0.53, 230), x = (W - barW) / 2;
+    ctx.fillStyle = 'rgba(169,242,215,.2)';
+    ctx.fillRect(x, top + 22, barW, 2);
+    ctx.fillStyle = '#a9f2d7';
+    ctx.fillRect(x, top + 22, barW * (frenzyT / 3), 2);
+    ctx.textAlign = 'center';
+    ctx.font = '750 12px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('F R E N Z Y    2×', W / 2, top + 15);
   }
   ctx.restore();
 }
@@ -590,87 +649,163 @@ function drawMute() {
   ctx.restore();
 }
 
+function drawBackground() {
+  const bg = ctx.createLinearGradient(0, 0, W * 0.3, H);
+  bg.addColorStop(0, '#08121e');
+  bg.addColorStop(0.52, '#142334');
+  bg.addColorStop(1, '#342632');
+  ctx.fillStyle = bg; ctx.fillRect(-25, -25, W + 50, H + 50);
+
+  // Soft stage light, restrained against the dark orchard.
+  const glow = ctx.createRadialGradient(W * 0.53, H * 0.76, 0, W * 0.53, H * 0.76, Math.max(W, H) * 0.65);
+  glow.addColorStop(0, 'rgba(219,139,103,.19)');
+  glow.addColorStop(.5, 'rgba(133,108,135,.05)');
+  glow.addColorStop(1, 'rgba(133,108,135,0)');
+  ctx.fillStyle = glow; ctx.fillRect(-25, -25, W + 50, H + 50);
+
+  // Quiet geometry creates depth without competing with targets.
+  ctx.strokeStyle = 'rgba(211,228,212,.055)';
+  ctx.lineWidth = 1;
+  const spacing = Math.max(54, 76 * S);
+  const offset = (ambientT * 7) % spacing;
+  for (let y = H * .34 + offset; y < H + spacing; y += spacing) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y - W * .13); ctx.stroke();
+  }
+  ctx.fillStyle = '#0e1723';
+  ctx.beginPath(); ctx.moveTo(-25, H);
+  ctx.bezierCurveTo(W*.17,H*.88,W*.3,H*.92,W*.5,H*.94);
+  ctx.bezierCurveTo(W*.7,H*.97,W*.82,H*.86,W+25,H*.90);
+  ctx.lineTo(W+25,H+25);ctx.lineTo(-25,H+25);ctx.fill();
+  ctx.strokeStyle = 'rgba(253,190,143,.18)';ctx.lineWidth = 1;
+  ctx.beginPath();ctx.moveTo(0,H*.917);ctx.quadraticCurveTo(W*.32,H*.935,W*.51,H*.94);ctx.stroke();
+  // The occasional drifting ember is deterministic and cheap to draw.
+  ctx.fillStyle = 'rgba(255,212,158,.27)';
+  for (let i = 0; i < 15; i++) {
+    const x = (Math.sin(i*42.73)*.5+.5)*W;
+    const y = (((i*103.7 - ambientT*(5+i%4)) % (H+70) + H+70) % (H+70));
+    ctx.globalAlpha = .15 + .3 * (Math.sin(ambientT + i*2.2)*.5+.5);
+    ctx.beginPath();ctx.arc(x,y,0.8 + i%3*.45,0,Math.PI*2);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  if (frenzyT > 0) {
+    ctx.fillStyle = 'rgba(104,240,199,.045)';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function drawIdle() {
+  ctx.save(); ctx.textAlign = 'center';
+  ctx.font = '700 11px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = '#9fd7c7';
+  ctx.fillText('N I G H T   A R C A D E', W / 2, H * .145);
+  fitFont('SLICE STORM', Math.min(58, W * .145), W * .92, 850);
+  ctx.fillStyle = '#fff3e1';
+  ctx.fillText('SLICE STORM', W / 2, H * .244);
+
+  const mid = W/2, y = H*.49;
+  const arrangement = [
+    { type: F_ORANGE, dx: -108, dy: 20, r: 36 },
+    { type: F_WATERMELON, dx: 0, dy: -25, r: 44 },
+    { type: F_KIWI, dx: 103, dy: 14, r: 33 },
+  ];
+  for (const a of arrangement) {
+    drawFruit({ x: mid + a.dx*S, y: y + a.dy*S + Math.sin(ambientT*1.4+a.dx)*5,
+      r:a.r*S, type:a.type, rot:Math.sin(ambientT*.4+a.dx)*.3, squashT:1 });
+  }
+  const blade = ctx.createLinearGradient(mid-150*S,y+66*S,mid+150*S,y-75*S);
+  blade.addColorStop(0,'rgba(147,245,217,0)');
+  blade.addColorStop(.5,'rgba(210,255,236,.65)');
+  blade.addColorStop(1,'rgba(147,245,217,0)');
+  ctx.strokeStyle=blade; ctx.lineWidth=2*S;
+  ctx.beginPath();ctx.moveTo(mid-154*S,y+64*S);ctx.lineTo(mid+151*S,y-68*S);ctx.stroke();
+
+  ctx.font = '750 20px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = '#fff6e6';
+  ctx.fillText('SWIPE TO BEGIN', mid, H*.75);
+  ctx.strokeStyle = '#80ddbf';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(mid-45,H*.75+10);ctx.lineTo(mid+45,H*.75+10);ctx.stroke();
+  ctx.fillStyle='#b3b8bd';
+  fitFont('Slice fruit  ·  Avoid bombs  ·  Chain 3 for Frenzy', 14, W*.89, 550);
+  ctx.fillText('Slice fruit  ·  Avoid bombs  ·  Chain 3 for Frenzy',mid,H*.835);
+  if (best > 0) {
+    ctx.fillStyle='#c1a88c';ctx.font='650 12px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('PERSONAL BEST    ' + best, mid, H*.91);
+  }
+  ctx.restore();
+}
+
+function drawEnd() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(6,12,20,.83)';ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.fillStyle='#a9f2d7';ctx.font='700 11px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillText('R U N   C O M P L E T E',W/2,H*.25);
+  fitFont('GAME OVER', 50, W*.87, 850);
+  ctx.fillStyle='#fff4e3';ctx.fillText('GAME OVER',W/2,H*.35);
+  ctx.fillStyle='#a3adb0';ctx.font='650 12px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillText('SCORE',W/2,H*.45);
+  ctx.font='850 65px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle='#fff4e3';ctx.fillText(String(score),W/2,H*.55);
+  ctx.font='650 14px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle='#c9b5a3';
+  ctx.fillText('BEST  ' + best + '     /     LONGEST STREAK  ' + maxCombo,W/2,H*.62);
+  if (deadT >= .5) {
+    ctx.fillStyle='#a9f2d7';ctx.font='750 20px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('TAP TO TRY AGAIN',W/2,H*.77);
+  }
+  ctx.restore();
+}
+
+function drawPause() {
+  ctx.save();ctx.fillStyle='rgba(6,12,20,.83)';ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  fitFont('PAUSED',52,W*.8);
+  ctx.fillStyle='#fff3e1';ctx.fillText('PAUSED',W/2,H*.45);
+  ctx.font='650 18px -apple-system, "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle='#a9f2d7';ctx.fillText('TAP TO RESUME',W/2,H*.55);
+  ctx.restore();
+}
+
 function render() {
   ctx.save();
-  // screen shake
-  if (shakeT > 0) {
-    const m = shakeMag * (shakeT / 0.35);
-    ctx.translate(rnd(-m, m), rnd(-m, m));
+  drawBackground();
+  if (state === 'ready') {
+    drawIdle();
+    drawMute();
+    ctx.restore();
+    return;
   }
-  // dusk orchard sky
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#120a28');
-  bg.addColorStop(0.45, '#2b1448');
-  bg.addColorStop(0.75, '#4a1e52');
-  bg.addColorStop(1, '#1c0f2e');
-  ctx.fillStyle = bg; ctx.fillRect(-20, -20, W + 40, H + 40);
-  // low sun glow
-  const sun = ctx.createRadialGradient(W * 0.72, H * 0.66, 10, W * 0.72, H * 0.66, H * 0.4);
-  sun.addColorStop(0, 'rgba(255,150,80,0.35)');
-  sun.addColorStop(1, 'rgba(255,150,80,0)');
-  ctx.fillStyle = sun; ctx.fillRect(-20, -20, W + 40, H + 40);
-  // orchard hill silhouettes
-  ctx.fillStyle = '#140b26';
-  ctx.beginPath();
-  ctx.moveTo(-20, H);
-  ctx.quadraticCurveTo(W * 0.25, H * 0.82, W * 0.5, H * 0.9);
-  ctx.quadraticCurveTo(W * 0.75, H * 0.97, W + 20, H * 0.86);
-  ctx.lineTo(W + 20, H + 20); ctx.lineTo(-20, H + 20);
-  ctx.closePath(); ctx.fill();
-  // frenzy tint
-  if (frenzyT > 0) {
-    ctx.fillStyle = 'rgba(255,157,245,0.08)';
-    ctx.fillRect(-20, -20, W + 40, H + 40);
+  if (shakeT > 0 && state === 'play') {
+    const m = shakeMag * (shakeT / .35);
+    ctx.translate(rnd(-m,m),rnd(-m,m));
   }
-
   for (const f of fruits) drawFruit(f);
   for (const h of halves) drawHalf(h);
-  // juice particles
   for (const p of parts) {
-    ctx.globalAlpha = clamp(p.life * 1.8, 0, 1);
+    ctx.globalAlpha = clamp(p.life * 1.7, 0, 1);
     ctx.fillStyle = p.col;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * clamp(p.life * 2, 0.3, 1), 0, 6.29); ctx.fill();
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size*clamp(p.life*1.7,.2,1),0,Math.PI*2);ctx.fill();
   }
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha=1;
+  for (const ring of impactRings) {
+    ctx.globalAlpha = clamp(ring.life*2.5,0,1)*.6;
+    ctx.strokeStyle=ring.col;ctx.lineWidth=2*S;
+    ctx.beginPath();ctx.arc(ring.x,ring.y,ring.r,0,Math.PI*2);ctx.stroke();
+  }
+  ctx.globalAlpha=1;
   drawTrail();
-  // floating texts
-  ctx.textAlign = 'center';
+  ctx.textAlign='center';
   for (const t of floatingTexts) {
-    ctx.globalAlpha = clamp(t.life * 1.5, 0, 1);
-    ctx.font = '800 ' + t.size + 'px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = t.col;
-    ctx.fillText(t.txt, t.x, t.y);
+    ctx.globalAlpha=clamp(t.life*1.5,0,1);
+    ctx.font='800 '+t.size+'px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillStyle=t.col;
+    ctx.fillText(t.txt,t.x,t.y);
   }
-  ctx.globalAlpha = 1;
-
-  if (state === 'ready') {
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    fitFont('SLICE STORM', 52, W * 0.92);
-    ctx.fillText('SLICE STORM', W / 2, H * 0.38);
-    ctx.font = '600 20px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    fitFont('Swipe to slice. Dodge the bombs.', 20, W * 0.9, 600);
-    ctx.fillText('Swipe to slice. Dodge the bombs.', W / 2, H * 0.38 + 44);
-    ctx.fillStyle = '#ffe066';
-    ctx.font = '600 20px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('Tap to start', W / 2, H * 0.38 + 84);
-  }
-  if (state === 'dead') {
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    fitFont('GAME OVER', 52, W * 0.92);
-    ctx.fillText('GAME OVER', W / 2, H * 0.38);
-    ctx.font = '600 24px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fillText('Score ' + score + '   Best ' + best, W / 2, H * 0.38 + 46);
-    if (deadT > 0.8) {
-      ctx.fillStyle = '#8ef7ff';
-      ctx.fillText('Tap to retry', W / 2, H * 0.38 + 88);
-    }
-  }
+  ctx.globalAlpha=1;
   drawHUD();
   drawMute();
+  if (state === 'dead') drawEnd();
+  else if (state === 'paused') drawPause();
   ctx.restore();
 }
 
@@ -713,6 +848,7 @@ let lastT = 0;
 function frame(t) {
   const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
   lastT = t;
+  ambientT += dt;
   if (state === 'play' || state === 'dead') step(dt);
   render();
   requestAnimationFrame(frame);
