@@ -42,6 +42,15 @@ function mulberry32(a) {
 }
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function rnd(a, b) { return a + Math.random() * (b - a); }
+// fitFont: set font size so text fits within maxW (scales down from baseSize)
+function fitFont(text, baseSize, maxW, weight = 800) {
+  let size = baseSize;
+  ctx.font = `${weight} ${size}px -apple-system, "Segoe UI", system-ui, sans-serif`;
+  while (ctx.measureText(text).width > maxW && size > 12) {
+    size -= 2;
+    ctx.font = `${weight} ${size}px -apple-system, "Segoe UI", system-ui, sans-serif`;
+  }
+}
 function buzz(ms) {
   try { if (typeof navigator.vibrate === 'function') navigator.vibrate(ms); } catch (e) {}
 }
@@ -583,18 +592,20 @@ function render() {
   if (state === 'ready') {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fff';
-    ctx.font = '800 52px -apple-system, "Segoe UI", system-ui, sans-serif';
+    fitFont('SLICE STORM', 52, W * 0.92);
     ctx.fillText('SLICE STORM', W / 2, H * 0.38);
     ctx.font = '600 20px -apple-system, "Segoe UI", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    fitFont('Swipe to slice. Dodge the bombs.', 20, W * 0.9, 600);
     ctx.fillText('Swipe to slice. Dodge the bombs.', W / 2, H * 0.38 + 44);
     ctx.fillStyle = '#ffe066';
+    ctx.font = '600 20px -apple-system, "Segoe UI", system-ui, sans-serif';
     ctx.fillText('Tap to start', W / 2, H * 0.38 + 84);
   }
   if (state === 'dead') {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fff';
-    ctx.font = '800 52px -apple-system, "Segoe UI", system-ui, sans-serif';
+    fitFont('GAME OVER', 52, W * 0.92);
     ctx.fillText('GAME OVER', W / 2, H * 0.38);
     ctx.font = '600 24px -apple-system, "Segoe UI", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
