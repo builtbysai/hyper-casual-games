@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>06 — Chroma Fall</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0b14; touch-action: none; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// CHROMA-FALL-06
+// Model: Color Switch. Tap to bounce the ball upward through rotating color gates.
+// Twist: the ball's color CYCLES automatically every 2.2s — you must time both
+// the bounce height AND the color to match the gate segment you pass through.
+'use strict';
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, S = 1;
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  S = Math.max(0.85, Math.min(2.0, W / 400));
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- utils ----------
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function fitFont(text, baseSize, maxW, weight = 800) {
+  let size = baseSize;
+  ctx.font = `${weight} ${size}px -apple-system, "Segoe UI", system-ui, sans-serif`;
+  while (ctx.measureText(text).width > maxW && size > 12) {
+    size -= 2;
+    ctx.font = `${weight} ${size}px -apple-system, "Segoe UI", system-ui, sans-serif`;
+  }
+}
+
+// ---------- audio ----------
+let AC = null, muted = false;
+function initAudio() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+}
+function audioSuspend() { if (AC && AC.state === 'running') AC.suspend(); }
+function audioResume() { if (AC && AC.state === 'suspended' && !muted) AC.resume(); }
+document.addEventListener('visibilitychange', () => document.hidden ? audioSuspend() : audioResume());
+window.addEventListener('blur', audioSuspend);
+window.addEventListener('focus', audioResume);
+window.addEventListener('pagehide', audioSuspend);
+function beep(freq, dur, type = 'sine', vol = 0.15) {
+  if (!AC || muted) return;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(); o.stop(AC.currentTime + dur);
+}
+function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
+
+// ---------- game state ----------
+const COLORS = ['#ff2e63', '#08d9d6', '#f9ed69', '#a06bff']; // pink, cyan, yellow, purple
+let state = 'ready'; // ready, play, dead
+let score = 0, best = 0;
+try { best = parseInt(localStorage.getItem('chroma_best') || '0'); } catch (e) {}
+
+// ball
+const ball = { x: 0, y: 0, vy: 0, r: 12, colorIdx: 0, colorT: 0 };
+const GRAV = 2200 * S, BOUNCE_V = -780 * S, COLOR_CYCLE = 2.2;
+
+// gates (rotating color rings)
+let gates = [];
+let camY = 0; // camera offset (world scrolls down as ball goes up)
+const GATE_GAP = 340 * S;
+
+function reset() {
+  score = 0;
+  ball.x = W / 2; ball.y = H * 0.65; ball.vy = 0;
+  ball.colorIdx = 0; ball.colorT = 0;
+  gates = [];
+  camY = 0;
+  // spawn first gates above
+  let y = ball.y - GATE_GAP;
+  for (let i = 0; i < 5; i++) {
+    gates.push(makeGate(y));
+    y -= GATE_GAP;
+  }
+}
+function makeGate(y) {
+  const r = (70 + Math.random() * 30) * S;
+  const rotSpeed = (0.6 + Math.random() * 0.8) * (Math.random() < 0.5 ? 1 : -1);
+  const segs = 4; // 4 color segments
+  return { y, r, rot: Math.random() * 6.28, rotSpeed, segs, passed: false };
+}
+
+// ---------- input ----------
+const muteBox = { x: 0, y: 0, w: 44, h: 44 };
+function onDown(x, y) {
+  initAudio();
+  if (AC && AC.state === 'suspended' && !muted) { try { AC.resume(); } catch (e) {} }
+  muteBox.x = W - 52; muteBox.y = 14;
+  if (x >= muteBox.x && x <= muteBox.x + muteBox.w && y >= muteBox.y && y <= muteBox.y + muteBox.h) {
+    muted = !muted;
+    if (muted) audioSuspend(); else audioResume();
+    return;
+  }
+  if (state === 'ready') { state = 'play'; reset(); }
+  else if (state === 'dead') { state = 'play'; reset(); return; }
+  if (state !== 'play') return;
+  // bounce!
+  ball.vy = BOUNCE_V;
+  beep(440 + ball.colorIdx * 110, 0.08, 'sine', 0.12);
+  buzz(10);
+}
+cv.addEventListener('pointerdown', e => onDown(e.clientX, e.clientY));
+
+// ---------- update ----------
+let lastTs = 0;
+function update(dt) {
+  if (state !== 'play') return;
+
+  // ball physics
+  ball.vy += GRAV * dt;
+  ball.y += ball.vy * dt;
+
+  // color cycle
+  ball.colorT += dt;
+  if (ball.colorT >= COLOR_CYCLE) {
+    ball.colorT = 0;
+    ball.colorIdx = (ball.colorIdx + 1) % COLORS.length;
+    beep(660, 0.06, 'triangle', 0.08);
+  }
+
+  // camera follows ball upward
+  const targetCam = Math.min(0, H * 0.65 - ball.y);
+  camY += (targetCam - camY) * Math.min(1, dt * 5);
+
+  // gates rotate
+  for (const g of gates) {
+    g.rot += g.rotSpeed * dt;
+  }
+
+  // spawn new gates as needed
+  const topGateY = Math.min(...gates.map(g => g.y));
+  if (topGateY > camY - H) {
+    gates.push(makeGate(topGateY - GATE_GAP));
+  }
+  // remove gates far below
+  gates = gates.filter(g => g.y < camY + H + 200);
+
+  // collision: check if ball is at a gate's y-level
+  for (const g of gates) {
+    const dy = Math.abs((ball.y + camY) - g.y);
+    if (dy < ball.r + 8 * S) {
+      // ball is at the gate ring — check color match
+      // find which segment the ball is touching (based on angle)
+      // ball is at center x, so angle is -PI/2 (top) or PI/2 (bottom) depending on direction
+      const angle = ball.vy < 0 ? -Math.PI / 2 : Math.PI / 2;
+      // adjust for gate rotation
+      let rel = (angle - g.rot) % (Math.PI * 2);
+      if (rel < 0) rel += Math.PI * 2;
+      const segIdx = Math.floor(rel / (Math.PI * 2 / g.segs)) % COLORS.length;
+      if (segIdx !== ball.colorIdx) {
+        // WRONG COLOR — death
+        die();
+        return;
+      } else if (!g.passed) {
+        g.passed = true;
+        score++;
+        beep(880, 0.1, 'sine', 0.15);
+        if (score > best) { best = score; try { localStorage.setItem('chroma_best', String(best)); } catch (e) {} }
+      }
+    }
+  }
+
+  // death if ball falls below screen
+  if (ball.y > H + 50) {
+    die();
+  }
+}
+function die() {
+  state = 'dead';
+  beep(220, 0.3, 'sawtooth', 0.15);
+  buzz(50);
+}
+
+// ---------- render ----------
+function render() {
+  // bg
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0b0b14'); bg.addColorStop(1, '#1a1a2e');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // color cycle indicator (arc around ball showing time until color change)
+  const cycleP = ball.colorT / COLOR_CYCLE;
+
+  ctx.save();
+  ctx.translate(0, camY);
+
+  // gates
+  for (const g of gates) {
+    const sy = g.y;
+    if (sy < -100 || sy > H + 100) continue;
+    // draw 4 colored arc segments
+    for (let i = 0; i < g.segs; i++) {
+      const a0 = g.rot + i * (Math.PI * 2 / g.segs);
+      const a1 = a0 + (Math.PI * 2 / g.segs);
+      ctx.beginPath();
+      ctx.arc(W / 2, sy, g.r, a0, a1);
+      ctx.strokeStyle = COLORS[i % COLORS.length];
+      ctx.lineWidth = 14 * S;
+      ctx.stroke();
+    }
+    // gate center marker
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath(); ctx.arc(W / 2, sy, 4 * S, 0, 6.29); ctx.fill();
+  }
+
+  // ball
+  const by = ball.y;
+  ctx.fillStyle = COLORS[ball.colorIdx];
+  ctx.beginPath(); ctx.arc(ball.x, by, ball.r * S, 0, 6.29); ctx.fill();
+  // glow
+  ctx.fillStyle = COLORS[ball.colorIdx] + '44';
+  ctx.beginPath(); ctx.arc(ball.x, by, ball.r * S * 1.8, 0, 6.29); ctx.fill();
+  // color cycle ring
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.arc(ball.x, by, ball.r * S + 8 * S, -Math.PI / 2, -Math.PI / 2 + cycleP * Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // HUD
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#fff';
+  ctx.font = `800 ${28 * S}px -apple-system, sans-serif`;
+  ctx.fillText(String(score), 18, 52);
+  ctx.font = `600 ${16 * S}px -apple-system, sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText('BEST ' + best, 18, 76);
+
+  // current color indicator
+  ctx.fillStyle = COLORS[ball.colorIdx];
+  ctx.beginPath(); ctx.arc(W - 70, 40, 12 * S, 0, 6.29); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = `600 ${12 * S}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('NEXT', W - 70, 62);
+
+  // mute
+  ctx.textAlign = 'left';
+  ctx.fillStyle = muted ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)';
+  ctx.font = '20px sans-serif';
+  ctx.fillText(muted ? '🔇' : '🔊', W - 44, 36);
+
+  // screens
+  if (state === 'ready') {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    fitFont('CHROMA FALL', 52, W * 0.92);
+    ctx.fillText('CHROMA FALL', W / 2, H * 0.38);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    fitFont('Tap to bounce. Match the color.', 20, W * 0.9, 600);
+    ctx.fillText('Tap to bounce. Match the color.', W / 2, H * 0.38 + 44);
+    ctx.fillStyle = '#ffe066';
+    ctx.font = '600 20px -apple-system, sans-serif';
+    ctx.fillText('Tap to start', W / 2, H * 0.38 + 84);
+  }
+  if (state === 'dead') {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    fitFont('GAME OVER', 52, W * 0.92);
+    ctx.fillText('GAME OVER', W / 2, H * 0.38);
+    ctx.font = '600 20px -apple-system, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillText('Score ' + score + '   Best ' + best, W / 2, H * 0.38 + 46);
+    ctx.fillStyle = '#8ef7ff';
+    ctx.fillText('Tap to retry', W / 2, H * 0.38 + 88);
+  }
+}
+
+function frame(ts) {
+  const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0.016);
+  lastTs = ts;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+reset();
+requestAnimationFrame(frame);
+
+// debug hook
+window.__cf = {
+  get state() { return state; },
+  get score() { return score; },
+  get ball() { return { y: ball.y, vy: ball.vy, color: ball.colorIdx }; },
+  tap() { onDown(W / 2, H / 2); },
+  gates() { return gates.map(g => ({ y: g.y, passed: g.passed })); }
+};
+</script>
+</body>
+</html>
