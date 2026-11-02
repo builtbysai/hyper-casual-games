@@ -11,7 +11,8 @@
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0b1422;
     touch-action: none; -webkit-user-select: none; user-select: none;
     font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
-  canvas { display: block; position: fixed; inset: 0; }
+  :root { --safe-top: env(safe-area-inset-top, 0px); }
+  canvas { display: block; position: fixed; inset: 0; outline: none; }
 </style>
 </head>
 <body>
@@ -21,10 +22,11 @@
 // SLICE STORM — game 05. Model: Fruit Ninja. Swipe to slice.
 // Twist: FRENZY (3+ fruit in one swipe = 3s slow-mo + 2x), golden fruit (10x).
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
-let W = 0, H = 0, DPR = 1, S = 1; // S = UI scale factor for responsiveness
+let W = 0, H = 0, DPR = 1, S = 1, TOP = 0; // S = UI scale factor for responsiveness
 function resize() {
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = window.innerWidth; H = window.innerHeight;
+  TOP = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-top')) || 0;
   S = clamp(Math.min(W / 400, H / 680), 0.75, 1.35); // consistent targets on tall phones and wide displays
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -292,7 +294,9 @@ function onDeath(reason) {
 // ---------- swipe ----------
 let swiping = false, lastSX = 0, lastSY = 0;
 const muteBox = { x: 0, y: 0, w: 44, h: 44 };
-function layoutMute() { muteBox.x = W - 56; muteBox.y = 14; }
+const pauseBox = { x: 0, y: 0, w: 44, h: 44 };
+function layoutMute() { muteBox.x = W - 56; muteBox.y = 14 + TOP; }
+function layoutPause() { pauseBox.x = W - 56; pauseBox.y = 98 + TOP; }
 function toggleMute() {
   muted = !muted;
   try { localStorage.setItem(SOUND_KEY, String(!muted)); } catch (e) {}
@@ -301,7 +305,11 @@ function toggleMute() {
 }
 function onDown(x, y, id) {
   if (activePointer !== null) return false;
-  layoutMute();
+  layoutMute(); layoutPause();
+  if (state === 'play' && x >= pauseBox.x && x <= pauseBox.x + pauseBox.w &&
+      y >= pauseBox.y && y <= pauseBox.y + pauseBox.h) {
+    pause(); return false;
+  }
   if (x >= muteBox.x && x <= muteBox.x + muteBox.w &&
       y >= muteBox.y && y <= muteBox.y + muteBox.h) {
     toggleMute(); return false;
@@ -575,7 +583,7 @@ function drawTrail() {
 
 function drawHUD() {
   if (state !== 'play' && state !== 'paused') return;
-  const top = Math.max(12, 12 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-top')) || 0));
+  const top = 12 + TOP;
   ctx.save();
   ctx.textAlign = 'left';
   ctx.font = '650 11px -apple-system, "Segoe UI", system-ui, sans-serif';
@@ -649,6 +657,15 @@ function drawMute() {
   ctx.restore();
 }
 
+function drawPauseIcon() {
+  layoutPause();
+  const x=pauseBox.x, y=pauseBox.y;
+  ctx.save();
+  ctx.fillStyle='rgba(227,240,238,.65)';
+  ctx.fillRect(x+14,y+15,4,15);
+  ctx.fillRect(x+24,y+15,4,15);
+  ctx.restore();
+}
 function drawBackground() {
   const bg = ctx.createLinearGradient(0, 0, W * 0.3, H);
   bg.addColorStop(0, '#08121e');
@@ -697,7 +714,7 @@ function drawIdle() {
   ctx.save(); ctx.textAlign = 'center';
   ctx.font = '700 11px -apple-system, "Segoe UI", system-ui, sans-serif';
   ctx.fillStyle = '#9fd7c7';
-  ctx.fillText('N I G H T   A R C A D E', W / 2, H * .145);
+  ctx.fillText('A R C A D E    /    0 5', W / 2, H * .145);
   fitFont('SLICE STORM', Math.min(58, W * .145), W * .92, 850);
   ctx.fillStyle = '#fff3e1';
   ctx.fillText('SLICE STORM', W / 2, H * .244);
@@ -739,7 +756,7 @@ function drawEnd() {
   ctx.fillStyle = 'rgba(6,12,20,.83)';ctx.fillRect(0,0,W,H);
   ctx.textAlign='center';
   ctx.fillStyle='#a9f2d7';ctx.font='700 11px -apple-system, "Segoe UI", system-ui, sans-serif';
-  ctx.fillText('R U N   C O M P L E T E',W/2,H*.25);
+  ctx.fillText('S L I C E   S T O R M    /    0 5',W/2,H*.25);
   fitFont('GAME OVER', 50, W*.87, 850);
   ctx.fillStyle='#fff4e3';ctx.fillText('GAME OVER',W/2,H*.35);
   ctx.fillStyle='#a3adb0';ctx.font='650 12px -apple-system, "Segoe UI", system-ui, sans-serif';
@@ -804,6 +821,7 @@ function render() {
   ctx.globalAlpha=1;
   drawHUD();
   drawMute();
+  if (state === 'play') drawPauseIcon();
   if (state === 'dead') drawEnd();
   else if (state === 'paused') drawPause();
   ctx.restore();
@@ -828,6 +846,8 @@ cv.addEventListener('pointerup', e => {
   try { cv.releasePointerCapture(e.pointerId); } catch (err) {}
 });
 cv.addEventListener('pointercancel', e => onUp(e.pointerId));
+window.addEventListener('pointerup', e => onUp(e.pointerId, e.clientX, e.clientY));
+window.addEventListener('pointercancel', e => onUp(e.pointerId));
 window.addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.key.toLowerCase() === 'm') toggleMute();
