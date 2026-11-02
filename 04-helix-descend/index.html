@@ -129,8 +129,10 @@ let perfectStreak = 0;
 let deadT = 0, deathReason = '';
 let floats = [];      // popup texts {x,y,txt,life,col,size}
 let parts = [];       // particles {x,y,vx,vy,life,col,size}
+let rings = [];       // bounce impact rings {y,r,life}
 let dust = [];        // background crystal dust
 let rotVel = 0;
+let bounceT = 99; // time since last bounce (for impact squash)
 let elapsed = 0;
 let milestoneHit = 0;
 
@@ -169,7 +171,8 @@ function reset(seed) {
   ball.y = -40; ball.vy = 0;
   camY = ball.y - ballScreenY();
   score = 0; streak = 0; fireball = false; fireCharge = 0;
-  perfectStreak = 0; floats = []; parts = []; deadT = 0; milestoneHit = 0;
+  perfectStreak = 0; floats = []; parts = []; rings = []; deadT = 0; milestoneHit = 0;
+  bounceT = 99;
   deathReason = '';
   // background dust
   dust = [];
@@ -241,6 +244,9 @@ function onSmash(plat) {
   if (fireCharge <= 0) { fireball = false; streak = 0; }
 }
 function onBounce(plat) {
+  bounceT = 0; // reset impact squash timer
+  // bounce ring effect
+  rings.push({ y: plat.y - camY, r: BALL_R, life: 1 });
   if (plat.type === T_SPRING) {
     ball.vy = SPRING_V;
     sfx.spring();
@@ -333,6 +339,14 @@ function step(dt) {
   // rotation inertia decay
   for (const p of platforms) p.rot += rotVel * dt;
   rotVel *= Math.pow(0.02, dt);
+
+  bounceT += dt;
+  // bounce rings expand and fade
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i];
+    r.life -= dt * 2.2; r.r += 160 * dt;
+    if (r.life <= 0) rings.splice(i, 1);
+  }
 
   if (state === 'dead') deadT += dt;
 }
@@ -439,7 +453,12 @@ function drawPlatform(p) {
 }
 function drawBall() {
   const x = W / 2, y = ballScreenY();
-  const squash = clamp(1 + ball.vy / 4000, 0.8, 1.25);
+  // impact squash: strong squash on bounce, springs back over ~0.25s
+  // combined with velocity stretch for a lively feel
+  const impact = Math.max(0, 1 - bounceT / 0.25);
+  const impactSquash = 1 - 0.35 * Math.sin(impact * Math.PI); // 1 -> 0.65 -> 1
+  const velStretch = clamp(1 + ball.vy / 4000, 0.85, 1.2);
+  const squash = impactSquash * velStretch;
   ctx.save();
   ctx.translate(x, y); ctx.scale(1 / Math.sqrt(squash), squash);
   if (fireball) {
@@ -503,6 +522,14 @@ function render() {
   ctx.globalAlpha = 1;
 
   if (state !== 'dead') drawBall();
+
+  // bounce impact rings
+  for (const r of rings) {
+    ctx.globalAlpha = clamp(r.life * 0.7, 0, 1);
+    ctx.strokeStyle = '#8ef7ff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(W / 2, r.y, r.r, r.r * 0.35, 0, 0, 6.29); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 
   // floats
   ctx.textAlign = 'center';
