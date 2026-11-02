@@ -3,13 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0a0a18">
+<meta name="theme-color" content="#10132b">
 <title>Helix Descend</title>
 <style>
-  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#0a0a18;
-    overscroll-behavior:none; -webkit-user-select:none; user-select:none;
-    -webkit-tap-highlight-color: transparent; }
-  canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10132b;
+    overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  canvas:active{cursor:grabbing}
+</style>
 </style>
 </head>
 <body>
@@ -108,10 +111,14 @@ const sfx = {
 };
 
 // ---------- game constants ----------
-const GRAV = 2200, BOUNCE_V = -750, SPRING_V = -1300, MAX_FALL = 1400;
-const BALL_R = 14, PLAT_DY = 150;
+const GRAV = 2450, BOUNCE_V = -610, SPRING_V = -920, MAX_FALL = 1580;
+const BALL_R = 14, PLAT_DY = 164;
 const TOWER_R = 46;
 const BEST_KEY = 'helix_best';
+const SOUND_KEY = 'helix_sound';
+const TAU = Math.PI * 2;
+let generatedCount = 0, depth = 0, towerAngle = 0, level = 1;
+let lastGap = 0, flash = 0, shake = 0, dangerPulse = 0;
 
 // platform types
 const T_NORMAL = 0, T_FRAGILE = 1, T_SPRING = 2, T_RED = 3;
@@ -136,57 +143,61 @@ let bounceT = 99; // time since last bounce (for impact squash)
 let elapsed = 0;
 let milestoneHit = 0;
 
-try { best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; } catch (e) { best = 0; }
+try { best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; muted = localStorage.getItem(SOUND_KEY) === 'off'; } catch (e) { best = 0; }
 function saveBest() { try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) {} }
 
 // screen anchor for the ball
-function ballScreenY() { return H * 0.34; }
-// world y of ball from camera: ballWorldY = camY + ballScreenY()
-// we store ball.y as world y directly.
+function ballScreenY() { return H * (H < 530 ? 0.35 : 0.34); }
+function ballVisualY() { return ball.y - camY; }
+function worldToScreen(y) { return y - camY; }
+function towerRadius() { return clamp(Math.min(W * 0.125, H * 0.065), 35, 56); }
 
 // ---------- platform generation ----------
-function genPlatform(y, depth) {
-  const r = rng();
-  // gap width shrinks with depth
-  const gapW = clamp(1.15 - depth * 0.0035, 0.68, 1.15);
-  const gapA = rng() * Math.PI * 2;
+// Each ring has one opening, and some have a small red danger wedge.
+// Ring angles follow a walk, rather than scattering at random, so chains
+// are achievable through deliberate small swipes.
+function genPlatform(y, index) {
+  const drift = (rng() * 2 - 1) * (index < 7 ? 0.98 : 1.3);
+  lastGap = angNorm(lastGap + drift);
+  const gapW = index < 4 ? 1.52 : clamp(1.42 - Math.max(0, index - 6) * 0.006, 0.94, 1.42);
+  const hazardous = index > 6 && rng() < clamp(0.17 + index * 0.002, 0, 0.36);
+  const typeRoll = rng();
   let type = T_NORMAL;
-  if (depth > 4) {
-    const redP = clamp(0.02 + depth * 0.004, 0, 0.26);
-    const fragP = 0.14, springP = 0.10;
-    const t = rng();
-    if (t < redP) type = T_RED;
-    else if (t < redP + fragP) type = T_FRAGILE;
-    else if (t < redP + fragP + springP) type = T_SPRING;
-  }
-  return { y, rot: rng() * Math.PI * 2, gapA, gapW, type, gone: false };
+  if (hazardous) type = T_RED;
+  else if (index > 5 && typeRoll < 0.12) type = T_FRAGILE;
+  else if (index > 8 && typeRoll < 0.19) type = T_SPRING;
+  return { y, rot: 0, gapA: lastGap, gapW, type, gone: false,
+    dangerA: angNorm(lastGap + Math.PI + (rng() - 0.5) * 0.55),
+    dangerW: clamp(0.72 + index * 0.002, 0.72, 1.02), index };
 }
 function reset(seed) {
   rng = mulberry32(seed || 1);
   platforms = [];
-  // first platform right under the ball, generous gap, always normal
-  const startY = 120;
-  platforms.push({ y: startY, rot: 0, gapA: Math.PI, gapW: 1.4, type: T_NORMAL, gone: false });
-  for (let i = 1; i < 40; i++) platforms.push(genPlatform(startY + i * PLAT_DY, i));
-  ball.y = -40; ball.vy = 0;
-  camY = ball.y - ballScreenY();
-  score = 0; streak = 0; fireball = false; fireCharge = 0;
-  perfectStreak = 0; floats = []; parts = []; rings = []; deadT = 0; milestoneHit = 0;
-  bounceT = 99;
-  deathReason = '';
-  // background dust
-  dust = [];
-  for (let i = 0; i < 70; i++) dust.push({ x: Math.random() * W, y: Math.random() * H, s: 1 + Math.random() * 2.2, v: 6 + Math.random() * 18, tw: Math.random() * 6.28 });
+  generatedCount = 0; depth = 0; level = 1; towerAngle = 0; lastGap = 0;
+  const startY = 124;
+  // Always give the player one easy opening to establish the mechanic.
+  platforms.push({ y:startY, rot:0, gapA:0.17, gapW:1.66, type:T_NORMAL,
+    gone:false, dangerA:Math.PI, dangerW:0, index:0 });
+  lastGap = 0.17;
+  generatedCount = 1;
+  for (let i=1;i<35;i++) platforms.push(genPlatform(startY+i*PLAT_DY,generatedCount++));
+  ball.y = -40; ball.vy = 0; camY = ball.y - ballScreenY();
+  score = 0; streak = 0; perfectStreak = 0; fireball = false; fireCharge = 0;
+  floats = []; parts = []; rings = []; bounceT = 99; deadT = 0; deathReason = '';
+  flash = 0; shake = 0; milestoneHit = 0; dragging = false; rotVel = 0;
+  dust = Array.from({length:46},()=>({x:Math.random()*W,y:Math.random()*H,
+    s:0.6+Math.random()*1.6,v:4+Math.random()*12,tw:Math.random()*TAU}));
 }
 function ensurePlatforms() {
-  const bottomWorld = camY + H + 300;
-  let maxY = -1e9;
-  for (const p of platforms) if (p.y > maxY) maxY = p.y;
-  let depth = platforms.length;
-  while (maxY < bottomWorld) { maxY += PLAT_DY; platforms.push(genPlatform(maxY, depth++)); }
-  const topWorld = camY - 400;
-  platforms = platforms.filter(p => p.y > topWorld - PLAT_DY);
+  let maxY = platforms.length ? platforms[platforms.length-1].y : ball.y;
+  while (maxY < camY + H + 500) {
+    maxY += PLAT_DY;
+    platforms.push(genPlatform(maxY,generatedCount++));
+  }
+  const cutoff = camY - 440;
+  while (platforms.length && platforms[0].y < cutoff) platforms.shift();
 }
+
 
 // ---------- effects ----------
 function addFloat(txt, col, size) {
@@ -206,253 +217,274 @@ function platColor(t) {
 }
 
 // ---------- scoring / events ----------
-function onPass(plat, centered) {
-  score++;
+function award(n) {
+  score += n;
   if (score > best) { best = score; saveBest(); }
-  if (centered) {
-    score++; // perfect pays double
-    if (score > best) { best = score; saveBest(); }
-    perfectStreak++;
-    addFloat(perfectStreak > 1 ? 'PERFECT x' + perfectStreak : 'PERFECT', '#8ef7ff', 26);
-    sfx.perfect(perfectStreak);
-    burst(W / 2, ballScreenY(), 14, '#8ef7ff', 300);
-  } else {
-    perfectStreak = 0;
-  }
+}
+function onPass(plat, centered) {
+  plat.gone = true;
+  depth++;
+  level = Math.floor(depth / 12) + 1;
   streak++;
+  if (centered) {
+    award(2); perfectStreak++;
+    if (perfectStreak > 1 || depth > 1) addFloat('PERFECT  +2', '#fff6b0', 19);
+    sfx.perfect(perfectStreak);
+    burst(W/2, ballVisualY(), 12, '#fff1a1', 270);
+  } else {
+    award(1); perfectStreak = 0;
+    if (streak > 1) addFloat('+' + streak + ' CHAIN', '#9df6e0', 18);
+    tone(490+Math.min(streak,6)*50,0.11,'sine',0.12);
+  }
+  flash = Math.max(flash,0.12);
   if (!fireball && streak >= 3) {
     fireball = true; fireCharge = 3;
-    addFloat('FIREBALL', '#ffb52e', 30);
-    sfx.fireball();
-    buzz(30);
+    addFloat('ON FIRE', '#ffd076', 28); sfx.fireball(); buzz(24);
+    shake = Math.max(shake,3);
   }
-  if (score % 50 === 0 && score !== milestoneHit) {
-    milestoneHit = score;
-    addFloat(score + ' DOWN', '#c9b8ff', 30);
-    sfx.milestone();
+  if (depth % 12 === 0) {
+    addFloat('LEVEL ' + level,'#ffffff',27);
+    sfx.milestone(); buzz(12);
   }
 }
 function onSmash(plat) {
-  plat.gone = true;
-  score++;
-  if (score > best) { best = score; saveBest(); }
+  plat.gone = true; depth++; level = Math.floor(depth / 12) + 1;
+  award(2);
   fireCharge--;
-  const sy = plat.y - camY;
-  burst(W / 2, sy, 22, plat.type === T_RED ? '#ff2e5e' : '#ffb52e', 380);
-  sfx.smash();
-  buzz(20);
-  if (fireCharge <= 0) { fireball = false; streak = 0; }
+  const sy = worldToScreen(plat.y);
+  burst(W/2,sy,25,plat.type===T_RED?'#ff526d':'#ffcc74',340);
+  shake=8; flash=0.28;
+  addFloat('SMASH  +2','#ffc56f',20);
+  sfx.smash();buzz(18);
+  if (fireCharge <= 0) { fireball=false;streak=0;perfectStreak=0; }
+  if (depth % 12 === 0) {addFloat('LEVEL ' + level,'#ffffff',27);sfx.milestone();}
 }
 function onBounce(plat) {
-  bounceT = 0; // reset impact squash timer
-  // bounce ring effect
-  rings.push({ y: plat.y - camY, r: BALL_R, life: 1 });
-  if (plat.type === T_SPRING) {
-    ball.vy = SPRING_V;
-    sfx.spring();
-    burst(W / 2, plat.y - camY, 10, '#ffb52e', 220);
-  } else {
-    ball.vy = BOUNCE_V;
-    sfx.bounce(streak);
+  bounceT=0;
+  rings.push({y:worldToScreen(plat.y),r:BALL_R,life:1});
+  if (plat.type===T_SPRING) {
+    ball.vy=SPRING_V; sfx.spring(); addFloat('BOOST','#ffdc84',18);
+    burst(W/2,worldToScreen(plat.y),12,'#ffd28c',200);
+  } else {ball.vy=BOUNCE_V;sfx.bounce(streak);}
+  if (plat.type===T_FRAGILE) {
+    plat.gone=true;sfx.shatter();
+    burst(W/2,worldToScreen(plat.y),18,'#dcefff',240);
   }
-  if (plat.type === T_FRAGILE && !plat.gone) {
-    plat.gone = true;
-    burst(W / 2, plat.y - camY, 18, '#cfe8ff', 300);
-    sfx.shatter();
-  }
-  streak = 0; fireball = false; fireCharge = 0; perfectStreak = 0;
-  buzz(8);
+  streak=0;perfectStreak=0;fireball=false;fireCharge=0;
+  shake=Math.max(shake,2.3);buzz(7);
 }
 function onDeath(reason) {
-  state = 'dead'; deadT = 0; deathReason = reason;
-  sfx.death();
-  buzz(80);
-  burst(W / 2, ballScreenY(), 30, '#ff2e5e', 420);
+  if (state!=='play') return;
+  state='dead';deadT=0;deathReason=reason;dragging=false;rotVel=0;
+  sfx.death();buzz([50,30,80]);shake=12;flash=0.45;
+  burst(W/2,ballVisualY(),35,'#ff6b85',350);
 }
+
 
 // ---------- physics ----------
 function step(dt) {
   ensurePlatforms();
-  ball.vy += GRAV * dt;
-  if (ball.vy > MAX_FALL) ball.vy = MAX_FALL;
-  const prevY = ball.y;
+  const previous = ball.y + BALL_R;
+  ball.vy = Math.min(MAX_FALL,ball.vy + GRAV * dt);
   ball.y += ball.vy * dt;
-
-  // camera follows downward only
-  const targetCam = ball.y - ballScreenY();
-  if (targetCam > camY) camY += (targetCam - camY) * Math.min(1, dt * 10);
-
+  // Smooth tracking in both directions keeps the ball and next two rings in view.
+  const target = ball.y - ballScreenY();
+  camY += (target-camY) * (1-Math.exp(-7.5*dt));
   if (ball.vy > 0) {
-    // swept collision: check the full path from prev to current (prevents tunneling at high speed)
-    const prevBy = prevY + BALL_R;
-    const by = ball.y + BALL_R;
-    let hit = null;
+    const foot = ball.y + BALL_R;
     for (const p of platforms) {
-      if (p.gone) continue;
-      if (p.y >= prevY - BALL_R && p.y <= by + 4 && p.y >= prevBy - 2) { hit = p; break; }
-    }
-    if (hit) {
-      const gapCenter = hit.gapA + hit.rot;
-      const off = angDist(0, gapCenter);
-      if (off < hit.gapW / 2) {
-        // fell through the gap
-        const centered = off < hit.gapW * 0.16;
-        onPass(hit, centered);
-        // nudge ball past so we don't double-trigger
-        ball.y = hit.y + BALL_R + 2;
+      if (p.gone || p.y < previous-0.05 || p.y > foot+0.05) continue;
+      const gapOffset=angDist(0,p.gapA+p.rot);
+      const clearance=Math.max(0.19,p.gapW/2-0.095);
+      if (gapOffset < clearance) {
+        const centered=gapOffset < Math.min(0.24,p.gapW*0.145);
+        onPass(p,centered);ball.y=p.y+BALL_R+1;
       } else if (fireball) {
-        onSmash(hit);
-        ball.y = hit.y + BALL_R + 2;
-      } else if (hit.type === T_RED) {
-        onDeath('red crystal');
+        onSmash(p);ball.y=p.y+BALL_R+1;
+      } else if (p.type===T_RED && angDist(0,p.dangerA+p.rot) < p.dangerW/2+0.08) {
+        ball.y=p.y-BALL_R;onDeath('RED ZONE');
       } else {
-        ball.y = hit.y - BALL_R;
-        onBounce(hit);
+        ball.y=p.y-BALL_R;onBounce(p);
       }
+      break;
     }
   }
-
-  // fireball trail
-  if (fireball && Math.random() < 0.6) {
-    parts.push({ x: W / 2 + (Math.random() - 0.5) * 20, y: ballScreenY() - 10,
-      vx: (Math.random() - 0.5) * 80, vy: -60 - Math.random() * 120,
-      life: 0.5, col: Math.random() < 0.5 ? '#ffb52e' : '#ff6a2e', size: 3 + Math.random() * 5 });
+  if (fireball && Math.random()<Math.min(0.75,dt*36)) {
+    parts.push({x:W/2+(Math.random()-.5)*24,y:ballVisualY()+12,
+      vx:(Math.random()-.5)*85,vy:80+Math.random()*90,life:.45,
+      col:Math.random()<.5?'#ffbd67':'#ff6b60',size:3+Math.random()*5});
   }
-
-  // particles
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i];
-    p.life -= dt;
-    if (p.life <= 0) { parts.splice(i, 1); continue; }
-    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 500 * dt;
-  }
-  for (let i = floats.length - 1; i >= 0; i--) {
-    const f = floats[i];
-    f.life -= dt * 0.9; f.y -= 34 * dt;
-    if (f.life <= 0) floats.splice(i, 1);
-  }
-  // dust drift
-  for (const d of dust) {
-    d.y += d.v * dt; d.tw += dt * 2;
-    if (d.y > H + 10) { d.y = -10; d.x = Math.random() * W; }
-  }
-  // rotation inertia decay
-  for (const p of platforms) p.rot += rotVel * dt;
-  rotVel *= Math.pow(0.02, dt);
-
-  bounceT += dt;
-  // bounce rings expand and fade
-  for (let i = rings.length - 1; i >= 0; i--) {
-    const r = rings[i];
-    r.life -= dt * 2.2; r.r += 160 * dt;
-    if (r.life <= 0) rings.splice(i, 1);
-  }
-
-  if (state === 'dead') deadT += dt;
 }
+function animateEffects(dt) {
+  bounceT += dt;elapsed += dt;
+  flash=Math.max(0,flash-dt*1.5);shake=Math.max(0,shake-dt*26);
+  dangerPulse+=dt*3;
+  for(let i=parts.length-1;i>=0;i--) {
+    const p=parts[i];p.life-=dt;
+    if(p.life<=0){parts.splice(i,1);continue;}
+    p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=520*dt;
+  }
+  for(let i=floats.length-1;i>=0;i--) {
+    const f=floats[i];f.life-=dt*.9;f.y-=44*dt;
+    if(f.life<=0)floats.splice(i,1);
+  }
+  for(let i=rings.length-1;i>=0;i--) {
+    const r=rings[i];r.life-=dt*2.4;r.r+=150*dt;
+    if(r.life<=0)rings.splice(i,1);
+  }
+  for(const d of dust){
+    d.y+=d.v*dt;d.tw+=dt*1.4;
+    if(d.y>H+5){d.y=-5;d.x=Math.random()*W;}
+  }
+  if(state==='dead')deadT+=dt;
+}
+
 
 // ---------- input ----------
-let dragging = false, lastX = 0;
-const muteBox = { x: 0, y: 0, w: 44, h: 44 };
-function layoutMute() { muteBox.x = W - 52; muteBox.y = 14; }
-function onDown(x, y) {
+let dragging = false, lastX = 0, pointerId = null;
+const keys = {left:false,right:false};
+const muteBox = {x:0,y:0,w:48,h:48};
+function layoutMute() { muteBox.x=W-56;muteBox.y=10; }
+function toggleSound(){
+  muted=!muted;
+  try{localStorage.setItem(SOUND_KEY,muted?'off':'on');}catch(e){}
+  if(muted)audioSuspend();else audioResume();
+}
+function onDown(x,y,id) {
   initAudio();
-  if (AC && AC.state === 'suspended' && !muted) { try { AC.resume(); } catch (e) {} }
+  if(AC&&AC.state==='suspended'&&!muted) {try{AC.resume();}catch(e){}}
   layoutMute();
-  if (x >= muteBox.x && x <= muteBox.x + muteBox.w && y >= muteBox.y && y <= muteBox.y + muteBox.h) {
-    muted = !muted;
-    if (muted) audioSuspend(); else audioResume();
-    return;
+  if(x>=muteBox.x&&x<=muteBox.x+muteBox.w&&y>=muteBox.y&&y<=muteBox.y+muteBox.h){
+    toggleSound();return false;
   }
-  if (state === 'ready') { state = 'play'; }
-  else if (state === 'dead' && deadT > 0.6) { reset((Math.random() * 1e9) | 0); state = 'play'; return; }
-  if (state !== 'play') return;
-  dragging = true; lastX = x; rotVel = 0;
+  if(state==='dead') {
+    if(deadT>=0.23){reset((Math.random()*0x7fffffff)|0);state='play';}
+    return false;
+  }
+  if(state==='ready')state='play';
+  if(state!=='play')return false;
+  dragging=true;lastX=x;pointerId=id;rotVel=0;
+  return true;
 }
-function onMove(x) {
-  if (!dragging || state !== 'play') return;
-  const dx = x - lastX; lastX = x;
-  const dRot = dx * 0.016;
-  for (const p of platforms) p.rot += dRot;
-  rotVel = dRot * 60; // carry a little inertia
+function onMove(x,id){
+  if(!dragging||state!=='play'||pointerId!==id)return;
+  const dx=clamp(x-lastX,-95,95);lastX=x;
+  const radians=dx*(W<600?0.0145:0.0115);
+  for(const p of platforms)p.rot+=radians;
+  towerAngle+=radians;
 }
-function onUp() { dragging = false; }
-cv.addEventListener('pointerdown', e => { e.preventDefault(); onDown(e.clientX, e.clientY); });
-window.addEventListener('pointermove', e => onMove(e.clientX, e.clientY));
-window.addEventListener('pointerup', onUp);
-window.addEventListener('pointercancel', onUp);
+function onUp(id){if(pointerId===id){dragging=false;pointerId=null;rotVel=0;}}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  if(onDown(e.clientX,e.clientY,e.pointerId)){
+    try{cv.setPointerCapture(e.pointerId);}catch(err){}
+  }
+});
+cv.addEventListener('pointermove',e=>onMove(e.clientX,e.pointerId));
+cv.addEventListener('pointerup',e=>onUp(e.pointerId));
+cv.addEventListener('pointercancel',e=>onUp(e.pointerId));
+window.addEventListener('blur',()=>{keys.left=false;keys.right=false;dragging=false;});
+window.addEventListener('keydown',e=>{
+  if(['ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();
+  if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=true;
+  if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=true;
+  if(e.code==='Space'||e.code==='Enter'){
+    if(state==='ready')state='play';
+    else if(state==='dead'&&deadT>=.23){reset((Math.random()*0x7fffffff)|0);state='play';}
+  }
+  if(e.code==='KeyM'&&!e.repeat)toggleSound();
+});
+window.addEventListener('keyup',e=>{
+  if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=false;
+  if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=false;
+});
+function updateKeyboard(dt){
+  if(state!=='play')return;
+  const direction=(keys.right?1:0)-(keys.left?1:0);
+  if(!direction)return;
+  const r=direction*dt*3.65;
+  towerAngle+=r;
+  for(const p of platforms)p.rot+=r;
+}
+
 
 // ---------- render ----------
-function drawTower() {
-  const cx = W / 2;
-  const g = ctx.createLinearGradient(cx - TOWER_R, 0, cx + TOWER_R, 0);
-  g.addColorStop(0, '#17173a'); g.addColorStop(0.5, '#2c2c66'); g.addColorStop(1, '#141432');
-  ctx.fillStyle = g;
-  ctx.fillRect(cx - TOWER_R, -20, TOWER_R * 2, H + 40);
-  // facet lines
-  ctx.strokeStyle = 'rgba(150,140,255,0.16)'; ctx.lineWidth = 1.5;
-  for (const fx of [-0.55, 0, 0.55]) {
-    ctx.beginPath(); ctx.moveTo(cx + fx * TOWER_R, -20); ctx.lineTo(cx + fx * TOWER_R, H + 40); ctx.stroke();
+function drawTower(){
+  const cx=W/2,r=towerRadius();
+  const g=ctx.createLinearGradient(cx-r,0,cx+r,0);
+  g.addColorStop(0,'#101c3b');g.addColorStop(.23,'#304466');
+  g.addColorStop(.49,'#51658a');g.addColorStop(.72,'#293d62');
+  g.addColorStop(1,'#101b38');
+  ctx.fillStyle=g;ctx.fillRect(cx-r,-24,r*2,H+48);
+  ctx.strokeStyle='rgba(204,229,255,.13)';ctx.lineWidth=1;
+  for(const v of [-.65,-.24,.25,.67]){
+    ctx.beginPath();ctx.moveTo(cx+v*r,0);ctx.lineTo(cx+v*r,H);ctx.stroke();
   }
-  // edge glow
-  ctx.strokeStyle = 'rgba(120,200,255,0.25)'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(cx - TOWER_R, -20); ctx.lineTo(cx - TOWER_R, H + 40); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx + TOWER_R, -20); ctx.lineTo(cx + TOWER_R, H + 40); ctx.stroke();
+  ctx.fillStyle='rgba(10,16,36,.3)';
+  ctx.fillRect(cx-r-3,0,3,H);ctx.fillRect(cx+r,0,3,H);
+}
+// The ring's front rim and the BALL'S collision plane now have the same y.
+// Canvas angle PI/2 is the front of the tower; physics angle 0 is that front.
+function annulus(cx,cy,outer,inner,a,b,fill){
+  ctx.beginPath();
+  ctx.ellipse(cx,cy,outer,outer*.285,0,a,b,false);
+  ctx.ellipse(cx,cy,inner,inner*.285,0,b,a,true);
+  ctx.closePath();ctx.fillStyle=fill;ctx.fill();
 }
 function drawPlatform(p) {
-  const sy = p.y - camY;
-  if (sy < -60 || sy > H + 60) return;
-  const cx = W / 2;
-  const outer = TOWER_R * 2.35, inner = TOWER_R * 0.92;
-  const ryO = outer * 0.30, ryI = inner * 0.30;
-  const c = platColor(p.type);
-  // gap in canvas-angle space: ball at front = canvas angle PI/2
-  const gapC = p.gapA + p.rot + Math.PI / 2;
-  const a1 = gapC + p.gapW / 2, a2 = gapC - p.gapW / 2 + Math.PI * 2;
+  const top=worldToScreen(p.y), cx=W/2, outer=towerRadius()*2.55;
+  if(top < -85||top > H+90)return;
+  const inner=towerRadius()*.98,cy=top-outer*.285;
+  const c=platColor(p.type);
+  const front=p.gapA+p.rot+Math.PI/2;
+  const start=front+p.gapW/2,end=front+TAU-p.gapW/2;
   ctx.save();
-  // glow underlay
-  ctx.shadowColor = c.glow; ctx.shadowBlur = 18;
-  ctx.beginPath();
-  ctx.ellipse(cx, sy, outer, ryO, 0, a1, a2, false);
-  ctx.ellipse(cx, sy, inner, ryI, 0, a2, a1, true);
-  ctx.closePath();
-  const g = ctx.createLinearGradient(0, sy - ryO, 0, sy + ryO);
-  g.addColorStop(0, c.top); g.addColorStop(1, c.edge);
-  ctx.fillStyle = g;
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  // top facet line
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.ellipse(cx, sy - 1, outer, ryO, 0, a1, a2, false);
-  ctx.stroke();
-  // fragile cracks
-  if (p.type === T_FRAGILE) {
-    ctx.strokeStyle = 'rgba(90,130,170,0.7)'; ctx.lineWidth = 1;
-    const mid = (a1 + a2) / 2;
-    for (let k = -1; k <= 1; k++) {
-      const a = mid + k * 0.5;
+  // Solid extruded underside, drawn behind the deck.
+  annulus(cx,cy+9,outer,inner,start,end,'#162544');
+  const base=ctx.createLinearGradient(0,cy-outer*.29,0,cy+outer*.3);
+  if(p.type===T_SPRING){
+    base.addColorStop(0,'#ffe3a1');base.addColorStop(.5,'#f7c66e');base.addColorStop(1,'#d29a48');
+  }else if(p.type===T_FRAGILE){
+    base.addColorStop(0,'#f1f9ff');base.addColorStop(.5,'#cce8f6');base.addColorStop(1,'#8eb8cb');
+  }else{
+    base.addColorStop(0,'#e0f7ec');base.addColorStop(.5,'#8de1cb');base.addColorStop(1,'#49a995');
+  }
+  ctx.shadowColor='rgba(5,15,36,.25)';ctx.shadowBlur=8;ctx.shadowOffsetY=5;
+  annulus(cx,cy,outer,inner,start,end,base);
+  ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+  // Red is a danger SECTOR, not an entire mysterious instant-death ring.
+  if(p.type===T_RED){
+    const hazard=p.dangerA+p.rot+Math.PI/2;
+    annulus(cx,cy,outer+0.4,inner-0.4,hazard-p.dangerW/2,hazard+p.dangerW/2,'#f55465');
+    ctx.strokeStyle='rgba(255,236,236,.52)';ctx.lineWidth=2;
+    const z=hazard;
+    ctx.beginPath();ctx.ellipse(cx,cy,outer,outer*.285,0,z-p.dangerW/2,z+p.dangerW/2);ctx.stroke();
+  }
+  ctx.lineWidth=1.6;ctx.strokeStyle='rgba(255,255,255,.36)';
+  ctx.beginPath();ctx.ellipse(cx,cy,outer,outer*.285,0,start,end,false);ctx.stroke();
+  // Recognizable cracks and springs use the same angular space as collisions.
+  if(p.type===T_FRAGILE) {
+    ctx.strokeStyle='#5f98b0';ctx.lineWidth=1.4;
+    for(let k=0;k<5;k++){
+      const a=start+(k+1)*(end-start)/6;
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * inner, sy + Math.sin(a) * ryI);
-      ctx.lineTo(cx + Math.cos(a + 0.12) * outer, sy + Math.sin(a + 0.12) * ryO);
+      ctx.moveTo(cx+Math.cos(a)*inner,cy+Math.sin(a)*inner*.285);
+      ctx.lineTo(cx+Math.cos(a+.13)*outer,cy+Math.sin(a+.13)*outer*.285);
       ctx.stroke();
     }
   }
-  // spring coils hint
-  if (p.type === T_SPRING) {
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    const mid = (a1 + a2) / 2;
-    for (let k = -2; k <= 2; k++) {
-      const a = mid + k * 0.35;
-      ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * (inner + outer) / 2, sy + Math.sin(a) * (ryI + ryO) / 2, 2.5, 0, 6.29);
-      ctx.fill();
+  if(p.type===T_SPRING) {
+    ctx.strokeStyle='#ad7832';ctx.lineWidth=3;
+    for(let k=0;k<4;k++){
+      const a=start+(k+1)*(end-start)/5,r=(inner+outer)/2;
+      ctx.beginPath();ctx.arc(cx+Math.cos(a)*r,cy+Math.sin(a)*r*.285,3,0,TAU);ctx.stroke();
     }
   }
   ctx.restore();
 }
+
 function drawBall() {
-  const x = W / 2, y = ballScreenY();
+  const x = W / 2, y = ballVisualY();
   // impact squash: strong squash on bounce, springs back over ~0.25s
   // combined with velocity stretch for a lively feel
   const impact = Math.max(0, 1 - bounceT / 0.25);
@@ -494,147 +526,163 @@ function drawMute() {
   }
   ctx.restore();
 }
-function render() {
-  // bg
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#0a0a18'); bg.addColorStop(0.6, '#10102a'); bg.addColorStop(1, '#181838');
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  // dust
-  for (const d of dust) {
-    ctx.globalAlpha = 0.25 + 0.2 * Math.sin(d.tw);
-    ctx.fillStyle = '#9fd8ff';
-    ctx.fillRect(d.x, d.y, d.s, d.s);
+function label(t,x,y,px,color,weight){
+  ctx.font=(weight||700)+' '+px+'px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+  ctx.fillStyle=color;ctx.fillText(t,x,y);
+}
+function render(){
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#11162d');bg.addColorStop(.6,'#172341');bg.addColorStop(1,'#243a54');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  // Quiet architectural grid and vertical light, not a particle blizzard.
+  ctx.strokeStyle='rgba(187,216,237,.055)';ctx.lineWidth=1;
+  for(let x=W/2%48;x<W;x+=48){
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
   }
-  ctx.globalAlpha = 1;
-
+  for(const d of dust){
+    ctx.globalAlpha=.12+.14*Math.sin(d.tw);ctx.fillStyle='#d4efff';
+    ctx.fillRect(d.x,d.y,d.s,d.s);
+  }
+  ctx.globalAlpha=1;
+  ctx.save();
+  if(shake>0)ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
   drawTower();
-  // platforms sorted far-to-near (higher y first so lower ones draw over)
-  const vis = platforms.filter(p => !p.gone && p.y - camY > -60 && p.y - camY < H + 60);
-  vis.sort((a, b) => b.y - a.y);
-  for (const p of vis) drawPlatform(p);
-
-  // particles behind ball
-  for (const p of parts) {
-    ctx.globalAlpha = clamp(p.life * 1.6, 0, 1);
-    ctx.fillStyle = p.col;
-    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+  const visible=platforms.filter(p=>!p.gone&&Math.abs(worldToScreen(p.y)-H/2)<H/2+110);
+  // Farther (higher on screen) first, near lower rings last.
+  visible.sort((a,b)=>a.y-b.y);
+  for(const p of visible)drawPlatform(p);
+  for(const p of parts){
+    ctx.globalAlpha=clamp(p.life*1.8,0,1);
+    ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.size/2,0,TAU);ctx.fill();
   }
-  ctx.globalAlpha = 1;
-
-  if (state !== 'dead') drawBall();
-
-  // bounce impact rings
-  for (const r of rings) {
-    ctx.globalAlpha = clamp(r.life * 0.7, 0, 1);
-    ctx.strokeStyle = '#8ef7ff'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.ellipse(W / 2, r.y, r.r, r.r * 0.35, 0, 0, 6.29); ctx.stroke();
+  ctx.globalAlpha=1;
+  if(state!=='dead')drawBall();
+  for(const r of rings){
+    ctx.globalAlpha=clamp(r.life*.65,0,1);
+    ctx.strokeStyle='#d8ffeb';ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.ellipse(W/2,r.y,r.r,r.r*.3,0,0,TAU);ctx.stroke();
   }
-  ctx.globalAlpha = 1;
-
-  // floats
-  ctx.textAlign = 'center';
-  for (const f of floats) {
-    ctx.globalAlpha = clamp(f.life * 1.4, 0, 1);
-    ctx.font = '700 ' + f.size + 'px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = f.col;
-    ctx.fillText(f.txt, f.x, f.y);
+  ctx.globalAlpha=1;ctx.restore();
+  for(const f of floats){
+    ctx.globalAlpha=clamp(f.life*1.5,0,1);
+    ctx.textAlign='center';label(f.txt,f.x,f.y,f.size,f.col,800);
   }
-  ctx.globalAlpha = 1;
-
-  // HUD
-  const scrim = ctx.createLinearGradient(0, 0, 0, 130);
-  scrim.addColorStop(0, 'rgba(6,6,18,0.72)'); scrim.addColorStop(1, 'rgba(6,6,18,0)');
-  ctx.fillStyle = scrim; ctx.fillRect(0, 0, W, 130);
-  ctx.textAlign = 'center';
-  ctx.font = '800 52px -apple-system, "Segoe UI", system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.fillText(String(score), W / 2, 64);
-  ctx.font = '600 15px -apple-system, "Segoe UI", system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(180,190,230,0.7)';
-  ctx.fillText('BEST ' + best, W / 2, 88);
-  if (fireball) {
-    ctx.font = '700 15px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = '#ffb52e';
-    ctx.fillText('FIREBALL x' + fireCharge, W / 2, 110);
+  ctx.globalAlpha=1;
+  if(flash>0){
+    ctx.fillStyle='rgba(255,243,206,'+Math.min(.16,flash*.22)+')';
+    ctx.fillRect(0,0,W,H);
   }
-
-  drawMute();
-
-  // overlays
-  if (state === 'ready') {
-    ctx.fillStyle = 'rgba(6,6,16,0.55)'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#fff';
-    ctx.font = '800 34px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('HELIX DESCEND', W / 2, H * 0.36);
-    ctx.font = '500 17px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(220,228,255,0.85)';
-    ctx.fillText('Drag to spin the spire.', W / 2, H * 0.36 + 40);
-    ctx.fillText('Thread the gaps. Dodge the red.', W / 2, H * 0.36 + 64);
-    ctx.fillText('Three clean drops lights the fireball.', W / 2, H * 0.36 + 88);
-    ctx.fillStyle = '#8ef7ff';
-    ctx.font = '700 19px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('TAP TO DESCEND', W / 2, H * 0.36 + 132);
-  } else if (state === 'dead' && deadT > 0.35) {
-    ctx.fillStyle = 'rgba(20,4,10,0.6)'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#ff5e7e';
-    ctx.font = '800 34px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('SHATTERED', W / 2, H * 0.38);
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.font = '800 52px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillText(String(score), W / 2, H * 0.38 + 62);
-    ctx.fillStyle = 'rgba(180,190,230,0.75)';
-    ctx.font = '600 15px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('BEST ' + best, W / 2, H * 0.38 + 88);
-    if (deadT > 0.6) {
-      ctx.fillStyle = '#8ef7ff';
-      ctx.font = '700 19px -apple-system, "Segoe UI", system-ui, sans-serif';
-      ctx.fillText('TAP TO RETRY', W / 2, H * 0.38 + 126);
+  const top=ctx.createLinearGradient(0,0,0,138);
+  top.addColorStop(0,'rgba(11,16,33,.91)');
+  top.addColorStop(1,'rgba(11,16,33,0)');
+  ctx.fillStyle=top;ctx.fillRect(0,0,W,138);
+  ctx.textAlign='center';
+  label(String(score),W/2,64,47,'#ffffff',800);
+  label('BEST '+best,W/2,85,12,'#9baec4',650);
+  // Progress is earned in rings, not inflated by perfect bonuses.
+  const barW=Math.min(172,W*.42),barX=(W-barW)/2,barY=102;
+  ctx.fillStyle='rgba(255,255,255,.14)';ctx.fillRect(barX,barY,barW,3);
+  ctx.fillStyle=fireball?'#ffb870':'#9de8d0';
+  ctx.fillRect(barX,barY,barW*(depth%12)/12,3);
+  ctx.textAlign='left';label('LV '+level,15,31,12,'#bfd1df',750);
+  if(streak>0){
+    ctx.textAlign='left';
+    label(fireball?'FIRE  '+fireCharge:'CHAIN  '+streak,15,53,12,
+      fireball?'#ffc17c':'#a0eed6',800);
+    if(!fireball){
+      for(let i=0;i<3;i++){
+        ctx.fillStyle=i<streak?'#9de8d0':'rgba(255,255,255,.2)';
+        ctx.fillRect(16+i*15,60,10,3);
+      }
     }
   }
+  if(state==='ready'){
+    ctx.fillStyle='rgba(9,14,29,.56)';ctx.fillRect(0,0,W,H);
+    ctx.textAlign='center';
+    label('HELIX',W/2,H*.39-34,44,'#f5fbff',850);
+    label('DESCEND',W/2,H*.39+1,36,'#a5ead8',850);
+    label('DRAG TO SPIN THE TOWER',W/2,H*.39+47,13,'#d7e8ed',700);
+    label('DROP THROUGH THE OPENINGS',W/2,H*.39+70,12,'#b1c6d0',500);
+    const pillY=H*.39+111;
+    ctx.fillStyle='#c4f3df';ctx.beginPath();
+    if(ctx.roundRect)ctx.roundRect(W/2-93,pillY-24,186,48,24);
+    else ctx.rect(W/2-93,pillY-24,186,48);
+    ctx.fill();
+    ctx.fillStyle='#132b33';label('TAP TO PLAY',W/2,pillY+6,16,'#132b33',800);
+  }else if(state==='dead'&&deadT>.18){
+    ctx.fillStyle='rgba(10,16,32,.79)';ctx.fillRect(0,0,W,H);
+    ctx.textAlign='center';
+    label('RUN OVER',W/2,H*.37-58,13,'#ff8c99',800);
+    label(String(score),W/2,H*.37+13,76,'#ffffff',800);
+    label('BEST  '+best,W/2,H*.37+40,15,'#bdd2d9',650);
+    label('LEVEL '+level+'  ·  '+depth+' RINGS',W/2,H*.37+66,13,'#bdd2d9',650);
+    if(deadT>.23){
+      const y=H*.37+117;
+      ctx.fillStyle='#c4f3df';ctx.beginPath();
+      if(ctx.roundRect)ctx.roundRect(W/2-94,y-24,188,48,24);
+      else ctx.rect(W/2-94,y-24,188,48);
+      ctx.fill();ctx.fillStyle='#132b33';
+      label('PLAY AGAIN',W/2,y+6,16,'#132b33',800);
+    }
+  }
+  drawMute();
 }
 
 // ---------- main loop ----------
-let last = performance.now();
-function loop(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
-  if (state === 'play') step(dt);
-  else { elapsed += dt; if (state === 'dead') deadT += dt; }
+let last=performance.now();
+function loop(now){
+  let dt=Math.min(.05,Math.max(0,(now-last)/1000));last=now;
+  if(document.hidden)dt=0;
+  if(dt>0){
+    updateKeyboard(dt);
+    if(state==='play'){
+      // Bounded substeps preserve fair gaps even on busy mobile frames.
+      let remain=dt;
+      while(remain>0&&state==='play'){
+        const h=Math.min(1/120,remain);step(h);remain-=h;
+      }
+    }
+    animateEffects(dt);
+  }
   render();
   requestAnimationFrame(loop);
 }
 reset(12345);
 requestAnimationFrame(loop);
 
-// debug hook for automated play-testing
-window.__hx = {
-  get state() { return state; },
-  get score() { return score; },
-  get best() { return best; },
-  get ball() { return { y: ball.y, vy: ball.vy }; },
-  get fireball() { return fireball; },
-  get fireCharge() { return fireCharge; },
-  get streak() { return streak; },
-  get platCount() { return platforms.length; },
-  platforms() { return platforms.slice(0, 6).map(p => ({ y: Math.round(p.y), type: p.type, gapA: +p.gapA.toFixed(2), rot: +p.rot.toFixed(2), gone: p.gone })); },
-  rotate(dx) { for (const p of platforms) p.rot += dx; },
-  alignGap() { // rotate so the next platform's gap faces the ball (front = angle 0)
-    const by = ball.y + BALL_R;
-    for (const p of platforms) {
-      if (p.gone || p.y < by) continue;
-      const want = angNorm(0 - p.gapA);
-      const d = angNorm(want - p.rot);
-      for (const q of platforms) q.rot += d;
-      return p.type;
-    }
-    return -1;
+
+// Lightweight deterministic hooks for gameplay smoke tests.
+window.__hx={
+  get state(){return state;},
+  get score(){return score;},
+  get best(){return best;},
+  get depth(){return depth;},
+  get level(){return level;},
+  get ball(){return {y:ball.y,vy:ball.vy,screenY:ballVisualY()};},
+  get fireball(){return fireball;},
+  get streak(){return streak;},
+  get platCount(){return platforms.length;},
+  get towerAngle(){return towerAngle;},
+  platforms(){return platforms.slice(0,8).map(p=>({
+    y:p.y,type:p.type,gapA:p.gapA,rot:p.rot,gapW:p.gapW,
+    dangerA:p.dangerA,dangerW:p.dangerW,gone:p.gone
+  }));},
+  rotate(dx){towerAngle+=dx;for(const p of platforms)p.rot+=dx;},
+  alignGap(){
+    const by=ball.y+BALL_R;
+    const p=platforms.find(p=>!p.gone&&p.y>=by);
+    if(!p)return -1;
+    const d=angNorm(-p.gapA-p.rot);
+    towerAngle+=d;for(const q of platforms)q.rot+=d;
+    return p.type;
   },
-  drop() { ball.vy = 1400; },
-  kill() { onDeath('debug'); },
-  restart() { reset((Math.random() * 1e9) | 0); state = 'play'; },
-  start() { if (state === 'ready') state = 'play'; },
-  toggleMute() { muted = !muted; }
+  drop(){ball.vy=MAX_FALL;},
+  kill(){onDeath('debug');},
+  restart(){reset(12345);state='play';},
+  start(){if(state==='ready')state='play';},
+  toggleMute(){toggleSound();}
 };
+
 </script>
 </body>
 </html>
