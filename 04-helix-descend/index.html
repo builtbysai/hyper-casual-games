@@ -55,7 +55,8 @@ function buzz(ms) {
 // All tones are synthesized locally; no samples, streams or external assets.
 // Music scheduling uses the audio clock, not animation frame timing.
 let AC=null, muted=false, masterBus=null, musicBus=null, fxBus=null;
-let nextNoteTime=0, musicStep=0, musicStarted=false, padBus=null, audioPeak=0;
+let nextNoteTime=0, musicStep=0, padBus=null;
+let lastMusicGain=-1, lastMusicCutoff=-1;
 let noiseBuffer=null;
 function initAudio(){
   if(AC)return;
@@ -69,6 +70,7 @@ function initAudio(){
     musicBus=AC.createGain();musicBus.gain.value=0;musicBus.connect(masterBus);
     fxBus=AC.createGain();fxBus.gain.value=.85;fxBus.connect(masterBus);
     padBus=AC.createBiquadFilter();padBus.type='lowpass';padBus.frequency.value=900;
+    lastMusicGain=-1;lastMusicCutoff=-1;
     padBus.connect(musicBus);
     noiseBuffer=AC.createBuffer(1,Math.floor(AC.sampleRate*.45),AC.sampleRate);
     const d=noiseBuffer.getChannelData(0);
@@ -139,11 +141,18 @@ function scheduleMusic(){
   const shouldPlay=state==='play';
   const now=AC.currentTime;
   if(musicBus){
-    musicBus.gain.setTargetAtTime(shouldPlay?.78:0,now,.19);
-    padBus.frequency.setTargetAtTime(fireball?1450:streak>=2?1120:760,now,.17);
+    const targetGain=shouldPlay?.78:0;
+    const targetCutoff=fireball?1450:streak>=2?1120:760;
+    // Enqueue automation only when a state changes, not 60 times per second.
+    if(lastMusicGain!==targetGain){
+      musicBus.gain.setTargetAtTime(targetGain,now,.19);lastMusicGain=targetGain;
+    }
+    if(lastMusicCutoff!==targetCutoff){
+      padBus.frequency.setTargetAtTime(targetCutoff,now,.17);lastMusicCutoff=targetCutoff;
+    }
   }
-  if(!shouldPlay){nextNoteTime=0;musicStarted=false;return;}
-  if(!nextNoteTime){nextNoteTime=now+.06;musicStep=0;musicStarted=true;}
+  if(!shouldPlay){nextNoteTime=0;return;}
+  if(!nextNoteTime){nextNoteTime=now+.06;musicStep=0;}
   // 94 BPM, eight subdivisions. Enough room for impacts to breathe.
   const tick=60/94/2;
   let safety=0;
@@ -216,7 +225,7 @@ let themeCacheLevel=-1,themeCacheDepth=-1,themeCache=null;
 function theme(){
   if(themeCacheLevel===level&&themeCacheDepth===depth)return themeCache;
   const base=PALETTES[(level-1)%PALETTES.length],next=PALETTES[level%PALETTES.length];
-  const t=clamp(((depth%12)-8)/4,0,1);
+  const t=clamp(((depth%12)-8)/3,0,1);
   themeCache={};
   for(const key of Object.keys(base))themeCache[key]=blendHex(base[key],next[key],t);
   themeCacheLevel=level;themeCacheDepth=depth;
@@ -574,7 +583,7 @@ function onDown(x,y,id){
   if(x>=muteBox.x&&x<=muteBox.x+muteBox.w&&y>=muteBox.y&&y<=muteBox.y+muteBox.h){
     toggleSound();return false;
   }
-  if(x>=pauseBox.x&&x<=pauseBox.x+pauseBox.w&&y>=pauseBox.y&&y<=pauseBox.y+pauseBox.h){
+  if((state==='play'||state==='paused')&&x>=pauseBox.x&&x<=pauseBox.x+pauseBox.w&&y>=pauseBox.y&&y<=pauseBox.y+pauseBox.h){
     togglePause();return false;
   }
   initAudio();
