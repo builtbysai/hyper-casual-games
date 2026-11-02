@@ -18,14 +18,10 @@
 <canvas id="c"></canvas>
 <script>
 'use strict';
-/* HELIX DESCEND — hyper-casual #04.
- * MODEL: Helix Jump. Drag to rotate the tower, guide the bouncing ball
- * down through platform gaps. Red crystal kills. Three clean gap passes
- * in a row ignites a fireball that smashes everything it touches.
- * IMPROVE: crystal spire theme; fragile platforms that shatter after one
- * bounce; spring platforms that launch the ball; perfect center-gap
- * landings pay double and build a rising chime streak.
- * One touch (drag to rotate). Portrait. Tap to start, tap to retry.
+/* HELIX DESCEND
+ * Rotate the tower to guide a bouncing ball through the openings.
+ * Avoid red sectors. Chain clean drops for a short smash streak.
+ * Pointer, touch, and keyboard controls. No dependencies.
  */
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
@@ -451,7 +447,7 @@ function drawPlatform(p) {
   ctx.shadowColor='rgba(5,15,36,.25)';ctx.shadowBlur=8;ctx.shadowOffsetY=5;
   annulus(cx,cy,outer,inner,start,end,base);
   ctx.shadowBlur=0;ctx.shadowOffsetY=0;
-  // Red is a danger SECTOR, not an entire mysterious instant-death ring.
+  // Red danger sector
   if(p.type===T_RED){
     const hazard=p.dangerA+p.rot+Math.PI/2;
     annulus(cx,cy,outer+0.4,inner-0.4,hazard-p.dangerW/2,hazard+p.dangerW/2,'#f55465');
@@ -533,7 +529,7 @@ function render(){
   const bg=ctx.createLinearGradient(0,0,0,H);
   bg.addColorStop(0,'#11162d');bg.addColorStop(.6,'#172341');bg.addColorStop(1,'#243a54');
   ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
-  // Quiet architectural grid and vertical light, not a particle blizzard.
+  // Background grid
   ctx.strokeStyle='rgba(187,216,237,.055)';ctx.lineWidth=1;
   for(let x=W/2%48;x<W;x+=48){
     ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
@@ -601,7 +597,7 @@ function render(){
     label('HELIX',W/2,H*.39-34,44,'#f5fbff',850);
     label('DESCEND',W/2,H*.39+1,36,'#a5ead8',850);
     label('DRAG TO SPIN THE TOWER',W/2,H*.39+47,13,'#d7e8ed',700);
-    label('DROP THROUGH THE OPENINGS',W/2,H*.39+70,12,'#b1c6d0',500);
+    label('FIND THE GAPS · AVOID RED',W/2,H*.39+70,12,'#b1c6d0',500);
     const pillY=H*.39+111;
     ctx.fillStyle='#c4f3df';ctx.beginPath();
     if(ctx.roundRect)ctx.roundRect(W/2-93,pillY-24,186,48,24);
