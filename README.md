@@ -17,6 +17,7 @@ Built by Hans + Bug. Web-first, one-touch, portrait.
 | 01 | Stack Twist | tap-timing tower vs wind gusts | live |
 | 02 | Number Breaker | aim-and-merge ball breaker | live |
 | 03 | Dune Rider | hold-release dune rider, near-miss multiplier | live |
+| 04 | Helix Descend | drag-rotate helix tower, fireball streaks | live |
 
 ## Reference
 - `docs/Crushing_Hyper_Casual_v1.3.pdf` — the playbook.
