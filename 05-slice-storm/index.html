@@ -24,7 +24,7 @@ let W = 0, H = 0, DPR = 1, S = 1; // S = UI scale factor for responsiveness
 function resize() {
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = window.innerWidth; H = window.innerHeight;
-  S = clamp(W / 400, 0.85, 2.2); // scale fruit/targets with screen width
+  S = clamp(Math.min(W / 400, H / 680), 0.75, 1.35); // consistent targets on tall phones and wide displays
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
@@ -119,17 +119,22 @@ const sfx = {
 // ---------- constants ----------
 const GRAV = 1900, MAX_FALL = 1500;
 const BEST_KEY = 'slice_best';
+const SOUND_KEY = 'slice_sound_enabled';
 const F_WATERMELON = 0, F_ORANGE = 1, F_APPLE = 2, F_KIWI = 3, F_BOMB = 4, F_GOLDEN = 5;
 
 // ---------- state ----------
-let state = 'ready'; // ready | play | dead
+let state = 'ready'; // ready | play | paused | dead
 let fruits = [], halves = [], parts = [], trail = [];
 let score = 0, best = 0, lives = 3, misses = 0;
 let combo = 0, maxCombo = 0;
 let frenzyT = 0, shakeT = 0, shakeMag = 0;
 let spawnT = 0, elapsed = 0, deadT = 0;
+let swipeCuts = 0, activePointer = null, lastWave = 0;
 let floatingTexts = [];
-try { best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; } catch (e) { best = 0; }
+try {
+  best = Math.max(0, parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0);
+  muted = localStorage.getItem(SOUND_KEY) === 'false';
+} catch (e) { best = 0; }
 function saveBest() { try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) {} }
 
 const FRUIT_DEF = [
@@ -144,89 +149,125 @@ const FRUIT_DEF = [
 function reset() {
   fruits = []; halves = []; parts = []; trail = []; floatingTexts = [];
   score = 0; lives = 3; misses = 0; combo = 0; maxCombo = 0;
-  frenzyT = 0; shakeT = 0; spawnT = 0.6; elapsed = 0; deadT = 0;
+  frenzyT = 0; shakeT = 0; spawnT = 0.25; elapsed = 0; deadT = 0;
+  swipeCuts = 0; activePointer = null; swiping = false;
 }
 
 function spawnFruit() {
-  const roll = Math.random();
-  let type;
-  if (roll < 0.10) type = F_BOMB;
-  else if (roll < 0.15) type = F_GOLDEN;
-  else type = (Math.random() * 4) | 0;
-  const def = FRUIT_DEF[type];
-  const x = rnd(W * 0.12, W * 0.88);
-  const up = H * rnd(1.55, 1.85);
-  fruits.push({
-    x, y: H + 50, vx: rnd(-90, 90), vy: -up,
-    r: def.r * S * rnd(0.92, 1.08), type,
-    rot: rnd(0, 6.28), vr: rnd(-2.5, 2.5),
-    squashT: 0, // time since launch (anticipation squash)
-    sliced: false
-  });
-  // occasionally spawn a pair
-  if (Math.random() < 0.35 && type !== F_BOMB) {
-    const x2 = clamp(x + rnd(-160, 160), W * 0.1, W * 0.9);
+  // A wave flies as a readable group, allowing real multi-fruit strokes.
+  // Bombs are separate launches so they cannot hide directly behind fruit.
+  const difficulty = clamp(elapsed / 90, 0, 1);
+  const isBomb = Math.random() < 0.10 + 0.035 * difficulty;
+  const triple = !isBomb && elapsed > 7 && Math.random() < 0.29 + difficulty * 0.10;
+  const count = isBomb ? 1 : triple ? 3 : (Math.random() < 0.45 ? 2 : 1);
+  const gap = clamp(W * 0.18, 58 * S, 94 * S);
+  const center = rnd(W * 0.27, W * 0.73);
+  const wave = ++lastWave;
+  const speed = Math.sqrt(2 * GRAV * H * rnd(0.49, 0.62));
+  for (let i = 0; i < count; i++) {
+    let type = isBomb ? F_BOMB : Math.random() < 0.07 ? F_GOLDEN : (Math.random() * 4) | 0;
+    const def = FRUIT_DEF[type];
+    const r = def.r * S * rnd(0.94, 1.06);
+    const x = clamp(center + (i - (count - 1) / 2) * gap, r + 8, W - r - 8);
     fruits.push({
-      x: x2, y: H + 50, vx: rnd(-90, 90), vy: -H * rnd(1.5, 1.8),
-      r: def.r * S * rnd(0.92, 1.08), type: (Math.random() * 4) | 0,
-      rot: rnd(0, 6.28), vr: rnd(-2.5, 2.5), squashT: 0, sliced: false
+      x, y: H + r + 10 + Math.abs(i - (count - 1) / 2) * 7,
+      vx: (W / 2 - x) * rnd(0.09, 0.16),
+      vy: -speed * rnd(0.97, 1.04),
+      r, type, wave, rot: rnd(-0.4, 0.4), vr: rnd(-2, 2),
+      squashT: 0, sliced: false
     });
   }
 }
 
 // ---------- slicing ----------
-function sliceFruit(f, sx, sy) {
+function sliceFruit(f, angle) {
   f.sliced = true;
   const def = FRUIT_DEF[f.type];
-  const ang = Math.atan2(sy - f.y, sx - f.x) + Math.PI / 2;
-  // two halves fly apart perpendicular to the swipe
-  const sp = 260;
+  // The cut line follows the swipe; the two pieces separate across it.
+  const normal = angle + Math.PI / 2;
+  const sp = 225 * S;
   for (const side of [-1, 1]) {
     halves.push({
       x: f.x, y: f.y,
-      vx: f.vx * 0.4 + Math.cos(ang) * sp * side + rnd(-40, 40),
-      vy: f.vy * 0.3 - 120,
-      rot: f.rot, vr: f.vr + side * rnd(3, 7),
-      r: f.r, type: f.type, side,
-      life: 1.1, cutAng: ang
+      vx: f.vx * 0.4 + Math.cos(normal) * sp * side + rnd(-18, 18),
+      vy: f.vy * 0.25 + Math.sin(normal) * sp * side - 80,
+      rot: f.rot, vr: f.vr + side * rnd(2, 4),
+      r: f.r, type: f.type, side, life: 1.15, cutAng: angle
     });
   }
-  // juice particles in the fruit's color
-  const n = f.type === F_GOLDEN ? 26 : 16;
+  const n = f.type === F_GOLDEN ? 24 : 14;
   for (let i = 0; i < n; i++) {
-    const a = rnd(0, 6.28), s = rnd(80, 420);
+    const a = rnd(0, 6.28), speed = rnd(65, 340) * S;
     parts.push({
-      x: f.x, y: f.y, vx: Math.cos(a) * s + f.vx * 0.3, vy: Math.sin(a) * s - 100,
-      life: rnd(0.4, 0.9), col: def.juice, size: rnd(2, 6)
+      x: f.x, y: f.y,
+      vx: Math.cos(a) * speed + f.vx * 0.25,
+      vy: Math.sin(a) * speed - 70,
+      life: rnd(0.28, 0.7), col: def.juice, size: rnd(2, 5) * S
     });
   }
   return def;
 }
 
-function onSlice(f, swipeCount) {
-  const def = FRUIT_DEF[f.type];
+function onSlice(f) {
   if (f.type === F_BOMB) {
+    f.sliced = true;
     lives--;
-    shakeT = 0.35; shakeMag = 14;
-    sfx.bomb(); buzz(80);
-    burstAt(f.x, f.y, '#ff9d2e', 30);
-    addText('BOMB', '#ff5d5d', 34, f.x, f.y - 40);
+    shakeT = 0.35; shakeMag = 12;
+    sfx.bomb(); buzz(70);
+    burstAt(f.x, f.y, '#ff9d52', 26);
+    addText('BOMB', '#ff786d', 28 * S, f.x, f.y - 36);
     combo = 0;
     if (lives <= 0) onDeath('bomb');
-    return;
+    return false;
   }
   combo++;
-  if (combo > maxCombo) maxCombo = combo;
-  const mult = Math.min(5, 1 + ((combo / 8) | 0));
-  let pts = def.score * mult;
-  if (frenzyT > 0) pts *= 2;
+  maxCombo = Math.max(maxCombo, combo);
+  const mult = Math.min(5, 1 + Math.floor(combo / 8));
+  let pts = FRUIT_DEF[f.type].score * mult * (frenzyT > 0 ? 2 : 1);
   score += pts;
   if (score > best) { best = score; saveBest(); }
-  if (f.type === F_GOLDEN) { sfx.golden(); addText('+' + pts + ' GOLD', '#ffe066', 30, f.x, f.y - 40); }
-  else { sfx.slice(); sfx.splat(); }
-  if (mult > 1) { sfx.combo(mult); addText('x' + mult, '#8ef7ff', 26, f.x, f.y - 60); }
-  // FRENZY check is done by the caller counting swipe slices
+  if (f.type === F_GOLDEN) {
+    sfx.golden();
+    addText('+' + pts + ' GOLD', '#ffe3a1', 25 * S, f.x, f.y - 46);
+  } else {
+    sfx.slice();
+    if (combo > 1 && combo % 4 === 0) sfx.combo(combo);
+    if (combo > 1) addText('+' + pts, '#fff2da', 21 * S, f.x, f.y - 45);
+  }
+  if (mult > 1 && combo % 8 === 0) addText('x' + mult + ' STREAK', '#a9f2d7', 23 * S, f.x, f.y - 74);
+  return true;
 }
+
+function triggerFrenzy() {
+  frenzyT = 3;
+  sfx.frenzy(); buzz(45);
+  addText('FRENZY  /  2×', '#b9f6e4', 32 * S, W / 2, H * 0.31);
+}
+
+function processSwipe(px, py, x, y) {
+  if (state !== 'play' || Math.hypot(x - px, y - py) < 1.5) return;
+  const angle = Math.atan2(y - py, x - px);
+  // Resolve nearest hit first, so an explosion stops the rest of this stroke.
+  const touched = [];
+  for (const f of fruits) {
+    if (!f.sliced && segDist(f.x, f.y, px, py, x, y) < f.r + 3 * S) {
+      const dx = x - px, dy = y - py;
+      const t = clamp(((f.x - px) * dx + (f.y - py) * dy) / (dx * dx + dy * dy), 0, 1);
+      touched.push({ f, t });
+    }
+  }
+  touched.sort((a, b) => a.t - b.t);
+  for (const hit of touched) {
+    if (state !== 'play') break;
+    if (hit.f.type !== F_BOMB) sliceFruit(hit.f, angle);
+    if (onSlice(hit.f)) {
+      swipeCuts++;
+      if (swipeCuts >= 3 && frenzyT <= 0) triggerFrenzy();
+    }
+  }
+}
+
+
 
 function burstAt(x, y, col, n) {
   for (let i = 0; i < n; i++) {
@@ -239,62 +280,71 @@ function addText(txt, col, size, x, y) {
   floatingTexts.push({ txt, col, size, x: x == null ? W / 2 : x, y: y == null ? H * 0.4 : y, life: 1 });
 }
 function onDeath(reason) {
-  state = 'dead'; deadT = 0;
+  if (state !== 'play') return;
+  state = 'dead'; deadT = 0; swiping = false; activePointer = null;
   sfx.over(); buzz(120);
 }
 
 // ---------- swipe ----------
 let swiping = false, lastSX = 0, lastSY = 0;
 const muteBox = { x: 0, y: 0, w: 44, h: 44 };
-function layoutMute() { muteBox.x = W - 52; muteBox.y = 14; }
-
-function onDown(x, y) {
-  initAudio();
-  if (AC && AC.state === 'suspended' && !muted) { try { AC.resume(); } catch (e) {} }
+function layoutMute() { muteBox.x = W - 56; muteBox.y = 14; }
+function toggleMute() {
+  muted = !muted;
+  try { localStorage.setItem(SOUND_KEY, String(!muted)); } catch (e) {}
+  if (muted) audioSuspend();
+  else { initAudio(); audioResume(); }
+}
+function onDown(x, y, id) {
+  if (activePointer !== null) return false;
   layoutMute();
-  if (x >= muteBox.x && x <= muteBox.x + muteBox.w && y >= muteBox.y && y <= muteBox.y + muteBox.h) {
-    muted = !muted;
-    if (muted) audioSuspend(); else audioResume();
-    return;
+  if (x >= muteBox.x && x <= muteBox.x + muteBox.w &&
+      y >= muteBox.y && y <= muteBox.y + muteBox.h) {
+    toggleMute(); return false;
   }
   if (state === 'ready') { state = 'play'; reset(); }
-  else if (state === 'dead' && deadT > 0.8) { state = 'play'; reset(); return; }
-  if (state !== 'play') return;
-  swiping = true;
+  else if (state === 'dead') {
+    if (deadT < 0.5) return false;
+    state = 'play'; reset();
+  } else if (state === 'paused') { state = 'play'; return false; }
+  if (state !== 'play') return false;
+  if (!muted) { initAudio(); audioResume(); }
+  activePointer = id;
+  swiping = true; swipeCuts = 0;
   lastSX = x; lastSY = y;
   trail.push({ x, y, age: 0 });
+  return true;
 }
-function onMove(x, y) {
-  if (!swiping || state !== 'play') return;
+function onMove(x, y, id) {
+  if (!swiping || state !== 'play' || activePointer !== id) return;
   const px = lastSX, py = lastSY;
   lastSX = x; lastSY = y;
+  if (Math.hypot(x - px, y - py) < 1) return;
   trail.push({ x, y, age: 0 });
-  if (trail.length > 24) trail.shift();
-  // swept collision: check every fruit against the swipe segment
-  let slicedThisMove = 0;
-  for (const f of fruits) {
-    if (f.sliced) continue;
-    if (segDist(f.x, f.y, px, py, x, y) < f.r + 6 * S) {
-      sliceFruit(f, x, y);
-      onSlice(f, 0);
-      slicedThisMove++;
-    }
-  }
-  // FRENZY: 3+ fruit in a single swipe move
-  if (slicedThisMove >= 3 && frenzyT <= 0) {
-    frenzyT = 3;
-    sfx.frenzy(); buzz(40);
-    addText('FRENZY 2x', '#ff9df5', 38, W / 2, H * 0.35);
-  }
+  if (trail.length > 28) trail.shift();
+  processSwipe(px, py, x, y);
 }
-function onUp() { swiping = false; }
+function onUp(id, x, y) {
+  if (activePointer !== id) return;
+  if (x != null && y != null && swiping) onMove(x, y, id);
+  swiping = false;
+  activePointer = null;
+  swipeCuts = 0;
+}
+function pause() {
+  if (state === 'play') { state = 'paused'; swiping = false; activePointer = null; trail = []; }
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+window.addEventListener('blur', pause);
+
+
 
 // ---------- physics ----------
 function step(dt) {
-  elapsed += dt;
+  if (state === 'play') elapsed += dt;
   // FRENZY slow-mo
   let pdt = dt;
-  if (frenzyT > 0) { frenzyT -= dt; pdt = dt * 0.35; }
+  if (state === 'play' && frenzyT > 0) { frenzyT = Math.max(0, frenzyT - dt); pdt = dt * 0.45; }
   if (shakeT > 0) shakeT -= dt;
 
   // spawn pacing ramps with score (only while playing)
@@ -302,7 +352,7 @@ function step(dt) {
     spawnT -= dt;
     if (spawnT <= 0) {
       spawnFruit();
-      spawnT = clamp(0.85 - score * 0.0012, 0.38, 0.85);
+      spawnT = clamp(1.22 - elapsed * 0.008, 0.67, 1.22);
     }
   }
 
@@ -326,7 +376,10 @@ function step(dt) {
       }
     }
     // despawn far sides
-    if (f.x < -120 || f.x > W + 120) fruits.splice(i, 1);
+    if (f.x < -f.r - 40 || f.x > W + f.r + 40) {
+      const index = fruits.indexOf(f);
+      if (index >= 0) fruits.splice(index, 1);
+    }
   }
 
   // halves
@@ -358,6 +411,7 @@ function step(dt) {
     if (t.life <= 0) floatingTexts.splice(i, 1);
   }
   if (state === 'dead') deadT += dt;
+  if (parts.length > 320) parts.splice(0, parts.length - 320);
 }
 
 // ---------- drawing ----------
@@ -621,10 +675,38 @@ function render() {
 }
 
 // ---------- input wiring ----------
-cv.addEventListener('pointerdown', e => { e.preventDefault(); onDown(e.clientX, e.clientY); }, { passive: false });
-cv.addEventListener('pointermove', e => { e.preventDefault(); onMove(e.clientX, e.clientY); }, { passive: false });
-window.addEventListener('pointerup', onUp);
-window.addEventListener('pointercancel', onUp);
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (onDown(e.clientX, e.clientY, e.pointerId)) {
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+}, { passive: false });
+cv.addEventListener('pointermove', e => {
+  if (activePointer !== e.pointerId) return;
+  e.preventDefault();
+  const points = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  if (points.length) for (const p of points) onMove(p.clientX, p.clientY, e.pointerId);
+  else onMove(e.clientX, e.clientY, e.pointerId);
+}, { passive: false });
+cv.addEventListener('pointerup', e => {
+  onUp(e.pointerId, e.clientX, e.clientY);
+  try { cv.releasePointerCapture(e.pointerId); } catch (err) {}
+});
+cv.addEventListener('pointercancel', e => onUp(e.pointerId));
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.key.toLowerCase() === 'm') toggleMute();
+  else if (e.key.toLowerCase() === 'p' || e.key === 'Escape') {
+    if (state === 'paused') state = 'play'; else pause();
+  } else if (e.key === ' ' || e.key === 'Enter') {
+    if (state === 'ready') { state = 'play'; reset(); }
+    else if (state === 'dead' && deadT >= 0.5) { state = 'play'; reset(); }
+    else if (state === 'paused') state = 'play';
+    e.preventDefault();
+  }
+});
+
+
 
 // ---------- main loop ----------
 let lastT = 0;
@@ -637,7 +719,7 @@ function frame(t) {
 }
 requestAnimationFrame(frame);
 
-// ---------- debug ----------
+// ---------- debug (read-only snapshots plus test helpers) ----------
 window.__ss = {
   get state() { return state; },
   get score() { return score; },
@@ -646,20 +728,18 @@ window.__ss = {
   get combo() { return combo; },
   get frenzy() { return frenzyT > 0; },
   get fruitCount() { return fruits.length; },
-  fruits() { return fruits.map(f => ({ x: Math.round(f.x), y: Math.round(f.y), type: f.type, sliced: f.sliced })); },
-  spawn() { spawnFruit(); },
-  swipe(x1, y1, x2, y2) { // test helper: simulate a swipe segment
-    const px = lastSX, py = lastSY;
-    lastSX = x2; lastSY = y2;
-    for (const f of fruits) {
-      if (f.sliced) continue;
-      if (segDist(f.x, f.y, x1, y1, x2, y2) < f.r + 6) {
-        sliceFruit(f, x2, y2); onSlice(f, 0);
-      }
-    }
-  },
-  start() { if (state === 'ready') { state = 'play'; reset(); } }
+  fruits() { return fruits.map(f => ({ x: Math.round(f.x), y: Math.round(f.y), r: f.r, type: f.type, sliced: f.sliced })); },
+  spawn() { if (state === 'play') spawnFruit(); },
+  swipe(x1, y1, x2, y2) { if (state === 'play') { swipeCuts = 0; processSwipe(x1, y1, x2, y2); } },
+  start() { if (state === 'ready') { state = 'play'; reset(); } },
+  setFruit(type, x, y) {
+    if (state !== 'play') return;
+    const def = FRUIT_DEF[type]; if (!def) return;
+    fruits.push({ x, y, vx: 0, vy: 0, r: def.r * S, type, rot: 0, vr: 0, squashT: 1, sliced: false });
+  }
 };
+
+
 </script>
 </body>
 </html>
