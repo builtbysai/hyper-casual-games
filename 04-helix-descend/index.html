@@ -51,14 +51,6 @@ function buzz(ms) {
   try { if (typeof navigator.vibrate === 'function') navigator.vibrate(ms); } catch (e) {}
 }
 
-// audio cleanup: suspend on tab hide / window blur / page close, resume on return
-function audioSuspend() { try { if (AC && AC.state === 'running') AC.suspend(); } catch (e) {} }
-function audioResume() { try { if (AC && AC.state === 'suspended' && !muted) AC.resume(); } catch (e) {} }
-document.addEventListener('visibilitychange', () => { if (document.hidden) audioSuspend(); else audioResume(); });
-window.addEventListener('blur', audioSuspend);
-window.addEventListener('focus', audioResume);
-window.addEventListener('pagehide', audioSuspend);
-
 // ---------- sound / adaptive original score ----------
 // All tones are synthesized locally; no samples, streams or external assets.
 // Music scheduling uses the audio clock, not animation frame timing.
@@ -131,9 +123,6 @@ function noiseBurst(dur,vol,freq){
     src.start(start);src.stop(start+dur);
   }catch(e){}
 }
-function musicNote(f,time,dur,volume,kind){
-  voice(f,time,dur,volume,kind||'sine',null,musicBus,'',0);
-}
 function chordPad(root,time){
   for(const [ratio,vol] of [[1,.014],[1.1892,.010],[1.4983,.009]]){
     voice(root*ratio,time,2.5,vol,'sine',null,padBus,500);
@@ -147,7 +136,7 @@ const MUSIC_CHORDS=[
 ];
 function scheduleMusic(){
   if(!AC||muted||AC.state!=='running')return;
-  const shouldPlay=state==='play' && musicEnabled;
+  const shouldPlay=state==='play';
   const now=AC.currentTime;
   if(musicBus){
     musicBus.gain.setTargetAtTime(shouldPlay?.78:0,now,.19);
@@ -203,21 +192,36 @@ const BALL_R = 14, PLAT_DY = 164;
 const TOWER_R = 46;
 const BEST_KEY = 'helix_best';
 const SOUND_KEY = 'helix_sound';
-const MUSIC_KEY = 'helix_music';
-let musicEnabled=true;
-const TAU = Math.PI * 2;
+ const TAU = Math.PI * 2;
 let generatedCount = 0, depth = 0, towerAngle = 0, level = 1;
 let lastGap = 0, flash = 0, shake = 0, dangerPulse = 0;
 let cameraKick = 0, nearCallT = 0, surgeT = 0, impactFreeze = 0;
 let tilt = 0, hitPulse = 0, rotationSpeed = 0, lastPointerTime = 0;
 let shards = [], trail = [], floatingScore = 0, latestScore = 0;
+let runStartingBest=0, longestChain=0, perfectCount=0, newRecordShown=false;
 const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const PALETTES = [
   { skyA:'#0d1528', skyB:'#213f4b', deep:'#102432', rim:'#b5eadb', gleam:'#e5ffef', accent:'#83e7c8', hot:'#ff686f', yellow:'#ffe2a4' },
   { skyA:'#21172a', skyB:'#5b384c', deep:'#30213e', rim:'#e4bde5', gleam:'#fff0f2', accent:'#e5b6ec', hot:'#ff7d78', yellow:'#ffe5a7' },
   { skyA:'#131e2a', skyB:'#274a62', deep:'#183248', rim:'#b4d9f9', gleam:'#f5faff', accent:'#95d9fc', hot:'#ff7780', yellow:'#ffd99a' }
 ];
-function theme() { return PALETTES[(level-1) % PALETTES.length]; }
+function blendHex(a,b,t){
+  const aa=parseInt(a.slice(1),16),bb=parseInt(b.slice(1),16);
+  const r=Math.round(((aa>>16)&255)*(1-t)+((bb>>16)&255)*t);
+  const g=Math.round(((aa>>8)&255)*(1-t)+((bb>>8)&255)*t);
+  const bl=Math.round((aa&255)*(1-t)+(bb&255)*t);
+  return '#'+((1<<24)|(r<<16)|(g<<8)|bl).toString(16).slice(1);
+}
+let themeCacheLevel=-1,themeCacheDepth=-1,themeCache=null;
+function theme(){
+  if(themeCacheLevel===level&&themeCacheDepth===depth)return themeCache;
+  const base=PALETTES[(level-1)%PALETTES.length],next=PALETTES[level%PALETTES.length];
+  const t=clamp(((depth%12)-8)/4,0,1);
+  themeCache={};
+  for(const key of Object.keys(base))themeCache[key]=blendHex(base[key],next[key],t);
+  themeCacheLevel=level;themeCacheDepth=depth;
+  return themeCache;
+}
 function rotateTower(rad) {
   if (!rad) return;
   towerAngle += rad;
@@ -248,7 +252,7 @@ let bounceT = 99; // time since last bounce (for impact squash)
 let elapsed = 0;
 let milestoneHit = 0;
 
-try { best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; muted = localStorage.getItem(SOUND_KEY) === 'off'; musicEnabled=localStorage.getItem(MUSIC_KEY)!=='off'; } catch (e) { best = 0; }
+try { best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; muted = localStorage.getItem(SOUND_KEY) === 'off'; } catch (e) { best = 0; }
 function saveBest() { try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) {} }
 
 // screen anchor for the ball
@@ -292,6 +296,7 @@ function reset(seed) {
   flash = 0; shake = 0; milestoneHit = 0; dragging = false; rotVel = 0;
   cameraKick=0; nearCallT=0; surgeT=0; impactFreeze=0; tilt=0; hitPulse=0;
   rotationSpeed=0; shards=[]; trail=[]; floatingScore=0; latestScore=0;
+  runStartingBest=best;longestChain=0;perfectCount=0;newRecordShown=false;
 
   dust = Array.from({length:46},()=>({x:Math.random()*W,y:Math.random()*H,
     s:0.6+Math.random()*1.6,v:4+Math.random()*12,tw:Math.random()*TAU}));
@@ -350,10 +355,19 @@ function award(n) {
 function award(n) {
   score += n;
   floatingScore += n;
-  if (score > best) {best=score;saveBest();}
+  if(score > best) {
+    best=score;saveBest();
+    if(!newRecordShown&&runStartingBest>0){
+      newRecordShown=true;
+      addFloat('NEW RECORD','#fff1b8',23);
+      sfx.milestone();
+    }
+  }
 }
 function onPass(plat, centered, near) {
   plat.gone=true;depth++;level=Math.floor(depth/12)+1;streak++;
+  longestChain=Math.max(longestChain,streak);
+  if(centered)perfectCount++;
   let gain=centered?2:1;
   // Successive clean drops build score without having to hit a tiny sweet spot.
   if (streak>=4 && streak%2===0)gain++;
@@ -400,6 +414,7 @@ function onPass(plat, centered, near) {
 }
 function onSmash(plat){
   plat.gone=true;depth++;level=Math.floor(depth/12)+1;
+  longestChain=Math.max(longestChain,streak);
   award(3);fireCharge--;
   sprayShards(plat.y,plat.type===T_RED?'#ff667d':'#c2ffe9',20);
   burst(W/2,ballVisualY(),22,plat.type===T_RED?'#ff6977':'#ffdb99',300);
@@ -534,7 +549,7 @@ function layoutMute(){muteBox.x=W-58;muteBox.y=10;pauseBox.x=W-108;pauseBox.y=10
 function toggleSound(){
   muted=!muted;
   try{localStorage.setItem(SOUND_KEY,muted?'off':'on');}catch(e){}
-  if(muted)audioSuspend();else audioResume();
+  if(muted)audioSuspend();else{audioResume();sfx.tap();}
   nextNoteTime=0;
 }
 function begin(){
@@ -861,6 +876,12 @@ function drawBackdrop(){
   for(const x of [W*.1,W*.25,W*.75,W*.90]){
     ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
   }
+  // A single restrained light shaft gives the composition a distant vanishing point.
+  const shaft=ctx.createLinearGradient(W*.27,0,W*.73,0);
+  shaft.addColorStop(0,'rgba(221,255,246,0)');
+  shaft.addColorStop(.5,'rgba(221,255,246,.022)');
+  shaft.addColorStop(1,'rgba(221,255,246,0)');
+  ctx.fillStyle=shaft;ctx.fillRect(W*.27,0,W*.46,H);
   for(let i=-1;i<9;i++){
     const y=((i*178-camY*.12)%(H+180)+H+180)%(H+180);
     ctx.strokeStyle='rgba(234,247,250,.045)';
@@ -954,10 +975,14 @@ function drawOverlay(){
     const headerY=clamp(H*.33,135,H*.40);
     label('RUN OVER',W/2,headerY-50,12,'#ffb5b8',800);
     label(String(score),W/2,headerY+33,84,'#fffaf1',800);
-    label('BEST  '+best,W/2,headerY+65,14,'rgba(239,255,242,.76)',750);
+    if(score>runStartingBest && runStartingBest>0)
+      label('NEW BEST',W/2,headerY+65,14,'#ffdfa1',800);
+    else label('BEST  '+best,W/2,headerY+65,14,'rgba(239,255,242,.76)',750);
     label(depth+' RINGS  ·  LEVEL '+level,W/2,headerY+90,12,'rgba(239,255,242,.58)',600);
+    label('LONGEST CHAIN '+longestChain+'  ·  PERFECT '+perfectCount,
+      W/2,headerY+112,11,'rgba(239,255,242,.6)',650);
     if(deadT>.28){
-      const promptY=Math.min(H-69,headerY+158);
+      const promptY=Math.min(H-69,headerY+173);
       label('TAP TO TRY AGAIN',W/2,promptY,15,'#fff7ce',800);
       ctx.strokeStyle=t.accent;ctx.lineWidth=2;
       ctx.beginPath();ctx.moveTo(W/2-87,promptY+12);ctx.lineTo(W/2+87,promptY+12);ctx.stroke();
@@ -1050,7 +1075,7 @@ window.__hx={
   get streak(){return streak;},
   get platCount(){return platforms.length;},
   get towerAngle(){return towerAngle;},
-  get audio(){return {initialized:!!AC,muted,musicEnabled,step:musicStep,bus:!!musicBus};},
+  get audio(){return {initialized:!!AC,muted,step:musicStep,bus:!!musicBus,running:!!AC&&AC.state==='running'};},
   pause(){pauseGame();},
   resume(){begin();},
   platforms(){return platforms.slice(0,8).map(p=>({
