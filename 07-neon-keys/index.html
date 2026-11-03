@@ -37,18 +37,18 @@ function noteFreq(lane, octave){ // pentatonic across lanes, rises with combo
   const step = scale[lane % 4] + 12*Math.floor(combo/16);
   return base*Math.pow(2, step/12);
 }
-function playTap(lane, perfect){
+function playTap(lane, perfect, freq){
   if(muted) return; const ac=audio(); if(ac.state==='suspended') ac.resume();
   const o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
-  o.type='triangle'; o.frequency.value=noteFreq(lane);
+  o.type='triangle'; o.frequency.value=freq||noteFreq(lane);
   g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(perfect?0.9:0.6,t+0.012);
   g.gain.exponentialRampToValueAtTime(0.0001,t+(perfect?0.5:0.32));
   o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.55);
 }
 let holdOsc=null;
-function holdStart(lane){ if(muted) return; const ac=audio(); if(ac.state==='suspended') ac.resume();
+function holdStart(lane, freq){ if(muted) return; const ac=audio(); if(ac.state==='suspended') ac.resume();
   holdStop(); const o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
-  o.type='sine'; o.frequency.value=noteFreq(lane);
+  o.type='sine'; o.frequency.value=freq||noteFreq(lane);
   g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.35,t+0.05);
   o.connect(g); g.connect(masterGain); o.start(t); holdOsc={o,g}; }
 function holdStop(){ if(holdOsc){ try{ const t=AC.currentTime;
@@ -89,26 +89,41 @@ function fitFont(text, base, maxW, weight){ ctx.font=`${weight||700} ${base}px s
 function reset(){
   tiles=[]; particles=[]; floaters=[]; holds={};
   score=0; combo=0; maxCombo=0; elapsed=0; shakeT=0; flashT=0;
+  songIdx=0; beatCount=0;
   speed=H*0.42; spawnY=-H*0.12; startCountdown=0;
 }
 function startGame(){ reset(); mode='play'; }
 
-// tile: {lane, y (head top), len (px, 0=tap), state: falling|holding|done, hitT, id}
-let tileId=0;
-function spawnTile(lane, len){
-  tiles.push({lane, y:spawnY, len:len||0, state:'falling', id:tileId++, wob:Math.random()*6.28});
+// ---------- song: Ode to Joy (Beethoven, public domain) ----------
+// [midi-ish pitch, beats] — 2-beat notes become hold tiles
+const SONG = [
+  [64,1],[64,1],[65,1],[67,1],[67,1],[65,1],[64,1],[62,1],
+  [60,1],[60,1],[62,1],[64,1],[64,2],[62,1],[62,2],
+  [64,1],[64,1],[65,1],[67,1],[67,1],[65,1],[64,1],[62,1],
+  [60,1],[60,1],[62,1],[64,1],[62,2],[60,1],[60,2],
+];
+const PITCH_FREQ = p => 440*Math.pow(2,(p-69)/12);
+const PITCH_LANE = p => ({60:0,62:1,64:2,65:3,67:3}[p]);
+let songIdx = 0, beatCount = 0, tileId = 0;
+// tile: {lane, y (head top), len (px, 0=tap), state: falling|holding|done, freq, id}
+function spawnTile(lane, len, freq){
+  tiles.push({lane, y:spawnY, len:len||0, state:'falling', id:tileId++, freq:freq||noteFreq(lane), wob:Math.random()*6.28});
 }
 function spawnPattern(){
-  // patterns: single tap, hold, chord (two lanes), hold+tap chord
-  const r=Math.random();
-  const laneA=(Math.random()*LANES)|0;
-  let laneB=(Math.random()*LANES)|0; if(laneB===laneA) laneB=(laneB+1)%LANES;
-  const holdLen = H*(0.18+Math.random()*0.22);
-  if(score<8){ spawnTile(laneA,0); }
-  else if(r<0.42){ spawnTile(laneA,0); }
-  else if(r<0.62){ spawnTile(laneA,holdLen); }                       // hold note
-  else if(r<0.80){ spawnTile(laneA,0); spawnTile(laneB,0); }          // tap chord
-  else { spawnTile(laneA,holdLen); spawnTile(laneB,0); }              // hold + tap chord
+  const [pitch, beats] = SONG[songIdx % SONG.length]; songIdx++;
+  const lane = PITCH_LANE(pitch), freq = PITCH_FREQ(pitch);
+  const gap = H*0.30;
+  if(beats >= 2){
+    spawnTile(lane, gap*(beats-0.35), freq);   // hold note for long tones
+  } else {
+    spawnTile(lane, 0, freq);
+  }
+  beatCount++;
+  // harmony chord every 8 beats: a third above in a free lane
+  if(beatCount % 8 === 0){
+    const hl = (lane+2)%LANES;
+    spawnTile(hl, 0, PITCH_FREQ(pitch+4));
+  }
 }
 
 function laneX(l){ return GX+l*laneW; }
@@ -188,15 +203,15 @@ function onDown(id,x,y){
     const perfect = d < H*0.028;
     if(t.len>0){
       t.state='holding'; holds[id]={lane, tile:t, pid:id};
-      holdStart(lane);
+      holdStart(lane, t.freq);
       score+=1; combo++; maxCombo=Math.max(maxCombo,combo);
-      playTap(lane,perfect);
+      playTap(lane,perfect,t.freq);
       burst(laneX(lane)+laneW/2, hitY, lane);
       floater(perfect?'PERFECT':'HOLD', laneX(lane)+laneW/2, hitY-30, LANE_COLORS[lane]);
     } else {
       t.state='done';
       score+=1; combo++; maxCombo=Math.max(maxCombo,combo);
-      playTap(lane,perfect);
+      playTap(lane,perfect,t.freq);
       burst(laneX(lane)+laneW/2, hitY, lane);
       floater(perfect?'PERFECT +1':'+1', laneX(lane)+laneW/2, hitY-30, LANE_COLORS[lane]);
     }
@@ -312,7 +327,7 @@ function drawHUD(){
   ctx.fillText(String(score), GX+18, 52);
   if(combo>=5){ ctx.textAlign='right'; ctx.fillStyle='#9fe8ff';
     const cfs=fitFont('COMBO 999',19,GW*0.35,700); ctx.font=`700 ${cfs}px system-ui,sans-serif`;
-    ctx.fillText('COMBO '+combo, GX+GW-18, 50); }
+    ctx.fillText('COMBO '+combo, GX+GW-18, 78); }
   if(best>0){ ctx.textAlign='left'; ctx.fillStyle='rgba(200,210,255,0.45)';
     ctx.font='600 13px system-ui,sans-serif'; ctx.fillText('BEST '+best, GX+18, 74); }
   // speed indicator
@@ -338,8 +353,12 @@ function drawMenu(){
   const ss2=fitFont('Chords need two fingers. Missing kills the run.',15,GW*0.85,500);
   ctx.font=`500 ${ss2}px system-ui,sans-serif`;
   ctx.fillText('Chords need two fingers. Missing kills the run.', cx, H*0.36+28);
+  ctx.fillStyle='rgba(255,215,120,0.7)';
+  const ss3=fitFont('♪ Ode to Joy — Beethoven',15,GW*0.85,600);
+  ctx.font=`600 ${ss3}px system-ui,sans-serif`;
+  ctx.fillText('♪ Ode to Joy — Beethoven', cx, H*0.36+52);
   if(best>0){ ctx.fillStyle='rgba(255,215,120,0.85)'; ctx.font='700 16px system-ui,sans-serif';
-    ctx.fillText('BEST '+best, cx, H*0.36+56); }
+    ctx.fillText('BEST '+best, cx, H*0.36+78); }
   // pulsing tap hint
   const p=0.5+0.5*Math.sin(performance.now()/350);
   ctx.fillStyle=`rgba(255,255,255,${0.35+0.4*p})`;
