@@ -14,7 +14,7 @@ Working down in order. Done: 01-05. 06 in progress.
 - 06 Chroma Fall (Color Switch) — ball auto-cycles colors, time position AND color
 
 ## Up Next
-- 07 Neon Keys (Piano Tiles) — tiles accelerate, hold-notes for chords
+- 07 Neon Keys (Piano Tiles) — DONE 2026-11-02 — tiles accelerate, hold-notes for chords
 - 08 Orbit (Flappy Bird) — gravity wells bend your flight path
 - 09 Skyhook (Doodle Jump) — grappling hook between platforms, momentum swings
 - 10 Neon Serpent (Snake) — snake splits in two, steer both at once
