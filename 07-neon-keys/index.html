@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Neon Keys</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#05060f; }
+  body { position:fixed; inset:0; width:100%; touch-action:none; user-select:none; -webkit-user-select:none; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #c { display:block; width:100%; height:100%; }
+  #mute { position:fixed; top:calc(env(safe-area-inset-top,0px) + 10px); right:12px; z-index:10;
+    width:40px; height:40px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
+    background:rgba(10,12,26,.55); color:#cfd6ff; font-size:17px; cursor:pointer; backdrop-filter:blur(6px); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="mute" aria-label="mute">♪</button>
+<script>
+"use strict";
+/* Neon Keys — Piano Tiles reimagined. Tiles accelerate; hold-notes form chords.
+   Tap tiles on the hit line. Hold long tiles to their tail. Chords need two fingers.
+   Missing a tile or tapping empty space ends the run. Death is always your fault. */
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let W=0, H=0, DPR=1;
+function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); layout(); }
+addEventListener('resize', resize);
+
+// ---------- audio ----------
+let AC=null, muted=false, masterGain=null;
+function audio(){ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)();
+  masterGain=AC.createGain(); masterGain.gain.value=0.5; masterGain.connect(AC.destination); } return AC; }
+function noteFreq(lane, octave){ // pentatonic across lanes, rises with combo
+  const scale=[0,2,4,7,9]; const base=261.63; // C4
+  const step = scale[lane % 4] + 12*Math.floor(combo/16);
+  return base*Math.pow(2, step/12);
+}
+function playTap(lane, perfect){
+  if(muted) return; const ac=audio(); if(ac.state==='suspended') ac.resume();
+  const o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
+  o.type='triangle'; o.frequency.value=noteFreq(lane);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(perfect?0.9:0.6,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+(perfect?0.5:0.32));
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.55);
+}
+let holdOsc=null;
+function holdStart(lane){ if(muted) return; const ac=audio(); if(ac.state==='suspended') ac.resume();
+  holdStop(); const o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
+  o.type='sine'; o.frequency.value=noteFreq(lane);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.35,t+0.05);
+  o.connect(g); g.connect(masterGain); o.start(t); holdOsc={o,g}; }
+function holdStop(){ if(holdOsc){ try{ const t=AC.currentTime;
+  holdOsc.g.gain.cancelScheduledValues(t); holdOsc.g.gain.setValueAtTime(holdOsc.g.gain.value,t);
+  holdOsc.g.gain.exponentialRampToValueAtTime(0.0001,t+0.08); holdOsc.o.stop(t+0.1); }catch(e){} holdOsc=null; } }
+function playMiss(){ if(muted) return; const ac=audio(); if(ac.state==='suspended') ac.resume();
+  const o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
+  o.type='sawtooth'; o.frequency.setValueAtTime(160,t); o.frequency.exponentialRampToValueAtTime(60,t+0.25);
+  g.gain.setValueAtTime(0.25,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.3);
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.32); }
+function suspendAudio(){ if(AC && AC.state==='running') AC.suspend(); }
+function resumeAudio(){ if(AC && AC.state==='suspended' && !muted) AC.resume(); }
+document.addEventListener('visibilitychange', ()=> document.hidden ? suspendAudio() : resumeAudio());
+addEventListener('blur', suspendAudio); addEventListener('focus', resumeAudio);
+addEventListener('pagehide', suspendAudio);
+document.getElementById('mute').onclick=e=>{ e.stopPropagation(); muted=!muted;
+  document.getElementById('mute').textContent = muted?'✕':'♪';
+  if(muted){ suspendAudio(); holdStop(); } else resumeAudio(); };
+
+// ---------- layout ----------
+const LANES=4; let laneW=0, hitY=0, topPad=0, GW=0, GX=0;
+function layout(){ GW=Math.min(W,480); GX=(W-GW)/2; laneW=GW/LANES; hitY=H*0.86; topPad=0; }
+
+// ---------- state ----------
+const BEST_KEY='neonkeys_best';
+let best=parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0;
+let mode='menu'; // menu | play | over
+let tiles=[], particles=[], floaters=[];
+let score=0, combo=0, maxCombo=0, speed=0, spawnY=0, elapsed=0;
+let holds={}; // pointerId -> {lane, tile}
+let shakeT=0, flashT=0, startCountdown=0;
+const LANE_COLORS=['#22d3ee','#f0f','#a3e635','#fb923c'];
+const LANE_GLOW=['rgba(34,211,238,','rgba(240,0,255,','rgba(163,230,53,','rgba(251,146,60,'];
+
+function fitFont(text, base, maxW, weight){ ctx.font=`${weight||700} ${base}px system-ui,sans-serif`;
+  const w=ctx.measureText(text).width; if(w>maxW) return base*(maxW/w); return base; }
+
+function reset(){
+  tiles=[]; particles=[]; floaters=[]; holds={};
+  score=0; combo=0; maxCombo=0; elapsed=0; shakeT=0; flashT=0;
+  speed=H*0.42; spawnY=-H*0.12; startCountdown=0;
+}
+function startGame(){ reset(); mode='play'; }
+
+// tile: {lane, y (head top), len (px, 0=tap), state: falling|holding|done, hitT, id}
+let tileId=0;
+function spawnTile(lane, len){
+  tiles.push({lane, y:spawnY, len:len||0, state:'falling', id:tileId++, wob:Math.random()*6.28});
+}
+function spawnPattern(){
+  // patterns: single tap, hold, chord (two lanes), hold+tap chord
+  const r=Math.random();
+  const laneA=(Math.random()*LANES)|0;
+  let laneB=(Math.random()*LANES)|0; if(laneB===laneA) laneB=(laneB+1)%LANES;
+  const holdLen = H*(0.18+Math.random()*0.22);
+  if(score<8){ spawnTile(laneA,0); }
+  else if(r<0.42){ spawnTile(laneA,0); }
+  else if(r<0.62){ spawnTile(laneA,holdLen); }                       // hold note
+  else if(r<0.80){ spawnTile(laneA,0); spawnTile(laneB,0); }          // tap chord
+  else { spawnTile(laneA,holdLen); spawnTile(laneB,0); }              // hold + tap chord
+}
+
+function laneX(l){ return GX+l*laneW; }
+function tileH(t){ return Math.max(H*0.11, t.len); }
+
+function update(dt){
+  elapsed+=dt;
+  // accelerate: speed grows with score, capped
+  speed = Math.min(H*1.35, H*0.42 + score*H*0.011);
+  // spawn spacing keeps constant time-gap as speed rises
+  spawnY -= speed*dt;
+  const gap = H*0.30;
+  while(spawnY < -gap){ spawnPattern(); spawnY += gap; }
+  for(const t of tiles){
+    t.y += speed*dt; t.wob += dt*3;
+    if(t.state==='holding'){
+      // holding: tail must reach hit line; head already passed
+      const tailY = t.y + tileH(t);
+      if(tailY >= hitY){ // completed hold
+        t.state='done'; score+=2; combo++; maxCombo=Math.max(maxCombo,combo);
+        burst(laneX(t.lane)+laneW/2, hitY, t.lane);
+        floater('HELD +2', laneX(t.lane)+laneW/2, hitY-30, LANE_COLORS[t.lane]);
+        releaseHoldTile(t);
+      }
+    } else if(t.state==='falling'){
+      const headBottom = t.y + (t.len? 0 : tileH(t));
+      // miss: head passed the hit line + grace
+      if(headBottom > hitY + H*0.055){ miss(t.lane, 'miss'); t.state='dead'; }
+    }
+  }
+  tiles = tiles.filter(t=> t.state==='falling'||t.state==='holding');
+  // particles
+  for(const p of particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=H*1.2*dt; p.life-=dt; }
+  particles=particles.filter(p=>p.life>0);
+  for(const f of floaters){ f.y-=H*0.06*dt; f.life-=dt; }
+  floaters=floaters.filter(f=>f.life>0);
+  if(shakeT>0) shakeT-=dt; if(flashT>0) flashT-=dt;
+  if(navigator.vibrate && combo>0 && combo%50===0 && !update._v){ update._v=true; try{navigator.vibrate(15);}catch(e){} }
+  if(combo%50!==0) update._v=false;
+}
+
+function burst(x,y,lane){
+  for(let i=0;i<14;i++){ const a=Math.random()*6.28, s=H*(0.1+Math.random()*0.35);
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-H*0.15,life:0.5+Math.random()*0.4,
+      color:LANE_COLORS[lane], r:2+Math.random()*3}); }
+}
+function floater(text,x,y,color){ floaters.push({text,x,y,color,life:0.9}); }
+
+function miss(lane, why){
+  if(mode!=='play') return;
+  mode='over'; playMiss(); holdStop();
+  if(navigator.vibrate) try{navigator.vibrate([40,30,40]);}catch(e){}
+  shakeT=0.35; flashT=0.3;
+  if(score>best){ best=score; localStorage.setItem(BEST_KEY,String(best)); }
+  holds={};
+}
+
+// ---------- input ----------
+function laneAt(x){ if(x<GX||x>GX+GW) return -1; return Math.max(0,Math.min(LANES-1, Math.floor((x-GX)/laneW))); }
+function activeTileInLane(lane){
+  // nearest falling tile whose head is within the hit window
+  let bestT=null, bestD=1e9;
+  for(const t of tiles){ if(t.lane!==lane||t.state!=='falling') continue;
+    const headY = t.y + (t.len? 0 : tileH(t)*0.5);
+    const d=Math.abs(headY-hitY);
+    if(d<bestD){ bestD=d; bestT=t; } }
+  return {t:bestT, d:bestD};
+}
+function onDown(id,x,y){
+  if(mode==='menu'){ startGame(); return; }
+  if(mode==='over'){ startGame(); return; }
+  const lane=laneAt(x);
+  if(lane<0) return; // tapped the dark margin on wide screens: ignore, don't punish
+  const {t,d}=activeTileInLane(lane);
+  const windowPx = H*0.075;
+  if(t && d<=windowPx){
+    const perfect = d < H*0.028;
+    if(t.len>0){
+      t.state='holding'; holds[id]={lane, tile:t, pid:id};
+      holdStart(lane);
+      score+=1; combo++; maxCombo=Math.max(maxCombo,combo);
+      playTap(lane,perfect);
+      burst(laneX(lane)+laneW/2, hitY, lane);
+      floater(perfect?'PERFECT':'HOLD', laneX(lane)+laneW/2, hitY-30, LANE_COLORS[lane]);
+    } else {
+      t.state='done';
+      score+=1; combo++; maxCombo=Math.max(maxCombo,combo);
+      playTap(lane,perfect);
+      burst(laneX(lane)+laneW/2, hitY, lane);
+      floater(perfect?'PERFECT +1':'+1', laneX(lane)+laneW/2, hitY-30, LANE_COLORS[lane]);
+    }
+    tiles=tiles.filter(k=>k!==t || k.state!=='done');
+  } else {
+    miss(lane,'empty'); // tapped empty space: always your fault
+  }
+}
+function onUp(id){
+  const h=holds[id];
+  if(h){ // released a hold early?
+    const t=h.tile;
+    if(t.state==='holding'){
+      const tailY=t.y+tileH(t);
+      if(tailY < hitY - H*0.03){ combo=0; miss(h.lane,'early'); }
+      // else: released right at the tail — update loop will complete it
+    }
+    delete holds[id];
+    if(Object.keys(holds).length===0) holdStop();
+  }
+}
+function releaseHoldTile(t){
+  for(const k of Object.keys(holds)) if(holds[k].tile===t) delete holds[k];
+  if(Object.keys(holds).length===0) holdStop();
+}
+cv.addEventListener('pointerdown', e=>{ e.preventDefault(); audio();
+  if(AC.state==='suspended'&&!muted) AC.resume(); onDown(e.pointerId,e.clientX,e.clientY); });
+addEventListener('pointerup', e=> onUp(e.pointerId));
+addEventListener('pointercancel', e=> onUp(e.pointerId));
+document.getElementById('mute').addEventListener('pointerdown', e=> e.stopPropagation());
+
+// ---------- render ----------
+function draw(){
+  ctx.save();
+  if(shakeT>0){ const s=shakeT*22; ctx.translate((Math.random()-0.5)*s,(Math.random()-0.5)*s); }
+  // bg
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#070818'); g.addColorStop(0.6,'#05060f'); g.addColorStop(1,'#0a0618');
+  ctx.fillStyle=g; ctx.fillRect(-20,-20,W+40,H+40);
+  // game column backdrop on wide screens
+  if(GX>0){ ctx.fillStyle='rgba(255,255,255,0.022)'; ctx.fillRect(GX,0,GW,H);
+    ctx.strokeStyle='rgba(140,160,255,0.14)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(GX+0.5,0); ctx.lineTo(GX+0.5,H);
+    ctx.moveTo(GX+GW-0.5,0); ctx.lineTo(GX+GW-0.5,H); ctx.stroke(); }
+  // lane separators
+  ctx.strokeStyle='rgba(120,140,255,0.10)'; ctx.lineWidth=1;
+  for(let i=1;i<LANES;i++){ const x=GX+i*laneW;
+    const lg=ctx.createLinearGradient(0,0,0,H);
+    lg.addColorStop(0,'rgba(120,140,255,0)'); lg.addColorStop(0.5,'rgba(120,140,255,0.16)'); lg.addColorStop(1,'rgba(120,140,255,0)');
+    ctx.strokeStyle=lg; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  // hit line
+  const pulse = mode==='play' ? 0.5+0.5*Math.sin(elapsed*6) : 0.6;
+  ctx.fillStyle=`rgba(255,255,255,${0.10+0.08*pulse})`;
+  ctx.fillRect(GX,hitY-2,GW,4);
+  ctx.fillStyle=`rgba(160,180,255,${0.25+0.2*pulse})`;
+  ctx.fillRect(GX,hitY-1,GW,2);
+
+  if(mode==='menu') drawMenu();
+  else {
+    drawTiles();
+    drawHUD();
+    // active hold indicators
+    for(const k of Object.keys(holds)){ const h=holds[k];
+      ctx.fillStyle=LANE_GLOW[h.lane]+'0.25)';
+      ctx.fillRect(laneX(h.lane),0,laneW,H); }
+    if(mode==='over') drawOver();
+  }
+  // particles
+  for(const p of particles){ ctx.globalAlpha=Math.max(0,p.life*1.8); ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.29); ctx.fill(); }
+  ctx.globalAlpha=1;
+  // floaters
+  ctx.textAlign='center';
+  for(const f of floaters){ ctx.globalAlpha=Math.min(1,f.life*2);
+    ctx.font='700 17px system-ui,sans-serif'; ctx.fillStyle=f.color; ctx.fillText(f.text,f.x,f.y); }
+  ctx.globalAlpha=1;
+  if(flashT>0){ ctx.fillStyle=`rgba(255,60,80,${flashT*1.4})`; ctx.fillRect(-20,-20,W+40,H+40); }
+  ctx.restore();
+}
+function drawTiles(){
+  for(const t of tiles){
+    const x=laneX(t.lane)+laneW*0.08, w=laneW*0.84, h=tileH(t);
+    const col=LANE_COLORS[t.lane], glow=LANE_GLOW[t.lane];
+    ctx.save();
+    ctx.shadowColor=col; ctx.shadowBlur=18;
+    const tg=ctx.createLinearGradient(0,t.y,0,t.y+h);
+    if(t.len>0){
+      tg.addColorStop(0,glow+'0.85)'); tg.addColorStop(1,glow+'0.45)');
+    } else { tg.addColorStop(0,glow+'0.95)'); tg.addColorStop(1,glow+'0.75)'); }
+    ctx.fillStyle=tg;
+    roundRect(x,t.y,w,h,10); ctx.fill();
+    ctx.shadowBlur=0;
+    // hold progress: bright fill from hit line upward while holding
+    if(t.state==='holding'){
+      const done=Math.min(1,Math.max(0,(hitY-t.y)/Math.max(1,tileH(t))));
+      ctx.fillStyle='rgba(255,255,255,0.35)';
+      roundRect(x,hitY-6,w,6,3); ctx.fill();
+    }
+    // head marker on hold tiles
+    if(t.len>0){ ctx.fillStyle='rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.arc(x+w/2, t.y+14, 5, 0, 6.29); ctx.fill(); }
+    ctx.restore();
+  }
+}
+function roundRect(x,y,w,h,r){ ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+function drawHUD(){
+  const cx=GX+GW/2;
+  ctx.textAlign='left'; ctx.fillStyle='#eef1ff';
+  const fs=fitFont('9999',34,GW*0.3,800); ctx.font=`800 ${fs}px system-ui,sans-serif`;
+  ctx.fillText(String(score), GX+18, 52);
+  if(combo>=5){ ctx.textAlign='right'; ctx.fillStyle='#9fe8ff';
+    const cfs=fitFont('COMBO 999',19,GW*0.35,700); ctx.font=`700 ${cfs}px system-ui,sans-serif`;
+    ctx.fillText('COMBO '+combo, GX+GW-18, 50); }
+  if(best>0){ ctx.textAlign='left'; ctx.fillStyle='rgba(200,210,255,0.45)';
+    ctx.font='600 13px system-ui,sans-serif'; ctx.fillText('BEST '+best, GX+18, 74); }
+  // speed indicator
+  const sp=Math.round((speed/(H*1.35))*100);
+  ctx.textAlign='center'; ctx.fillStyle='rgba(200,210,255,0.35)';
+  ctx.font='600 11px system-ui,sans-serif';
+  ctx.fillText(sp+'% SPEED', cx, 24);
+}
+function drawMenu(){
+  const cx=GX+GW/2;
+  ctx.textAlign='center';
+  const ts=fitFont('NEON KEYS',64,GW*0.9,800);
+  ctx.font=`800 ${ts}px system-ui,sans-serif`;
+  const tg=ctx.createLinearGradient(0,H*0.3-ts,0,H*0.3);
+  tg.addColorStop(0,'#22d3ee'); tg.addColorStop(0.5,'#818cf8'); tg.addColorStop(1,'#f0f');
+  ctx.fillStyle=tg; ctx.shadowColor='#22d3ee'; ctx.shadowBlur=30;
+  ctx.fillText('NEON KEYS', cx, H*0.30); ctx.shadowBlur=0;
+  ctx.fillStyle='rgba(210,220,255,0.75)';
+  const ss=fitFont('Tap the tiles. Hold the long ones.',17,GW*0.85,500);
+  ctx.font=`500 ${ss}px system-ui,sans-serif`;
+  ctx.fillText('Tap the tiles. Hold the long ones.', cx, H*0.36);
+  ctx.fillStyle='rgba(210,220,255,0.5)';
+  const ss2=fitFont('Chords need two fingers. Missing kills the run.',15,GW*0.85,500);
+  ctx.font=`500 ${ss2}px system-ui,sans-serif`;
+  ctx.fillText('Chords need two fingers. Missing kills the run.', cx, H*0.36+28);
+  if(best>0){ ctx.fillStyle='rgba(255,215,120,0.85)'; ctx.font='700 16px system-ui,sans-serif';
+    ctx.fillText('BEST '+best, cx, H*0.36+56); }
+  // pulsing tap hint
+  const p=0.5+0.5*Math.sin(performance.now()/350);
+  ctx.fillStyle=`rgba(255,255,255,${0.35+0.4*p})`;
+  const hs=fitFont('— TAP TO START —',20,GW*0.7,700); ctx.font=`700 ${hs}px system-ui,sans-serif`;
+  ctx.fillText('— TAP TO START —', cx, H*0.72);
+  // demo tiles falling (kept clear of the text band)
+  ctx.save(); ctx.globalAlpha=0.28;
+  const demoY=(performance.now()/8)%(H+200)-100;
+  for(let i=0;i<3;i++){ const l=(i+1)%LANES;
+    const dy=(demoY+i*H*0.33)%(H+160)-80;
+    if(dy>H*0.18 && dy<H*0.52) continue; // keep text readable
+    ctx.fillStyle=LANE_GLOW[l]+'0.5)';
+    roundRect(laneX(l)+laneW*0.08, dy, laneW*0.84, H*0.11, 10); ctx.fill(); }
+  ctx.restore();
+}
+function drawOver(){
+  const cx=GX+GW/2;
+  ctx.fillStyle='rgba(4,5,14,0.72)'; ctx.fillRect(-20,-20,W+40,H+40);
+  ctx.textAlign='center'; ctx.fillStyle='#ff5d73';
+  const ts=fitFont('GAME OVER',52,GW*0.85,800); ctx.font=`800 ${ts}px system-ui,sans-serif`;
+  ctx.shadowColor='#ff5d73'; ctx.shadowBlur=24; ctx.fillText('GAME OVER', cx, H*0.38); ctx.shadowBlur=0;
+  ctx.fillStyle='#eef1ff';
+  const ss=fitFont(String(score),72,GW*0.5,800); ctx.font=`800 ${ss}px system-ui,sans-serif`;
+  ctx.fillText(String(score), cx, H*0.38+80);
+  ctx.fillStyle='rgba(210,220,255,0.6)'; ctx.font='600 15px system-ui,sans-serif';
+  ctx.fillText('MAX COMBO '+maxCombo+(score>=best&&score>0?'  •  NEW BEST':''), cx, H*0.38+112);
+  const p=0.5+0.5*Math.sin(performance.now()/350);
+  ctx.fillStyle=`rgba(255,255,255,${0.35+0.4*p})`;
+  const hs=fitFont('— TAP TO RETRY —',19,GW*0.7,700); ctx.font=`700 ${hs}px system-ui,sans-serif`;
+  ctx.fillText('— TAP TO RETRY —', cx, H*0.66);
+}
+
+// ---------- loop ----------
+let last=performance.now();
+function frame(now){
+  let dt=(now-last)/1000; last=now; dt=Math.min(dt,0.05);
+  if(mode==='play') update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+resize(); requestAnimationFrame(frame);
+
+// debug hooks
+window.__nk={ get mode(){return mode}, get score(){return score}, get tiles(){return tiles},
+  start:startGame, tap:(lane)=>onDown('dbg'+Math.random(), GX+lane*laneW+laneW/2, hitY), miss };
+</script>
+</body>
+</html>
