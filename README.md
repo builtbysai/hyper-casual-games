@@ -19,6 +19,8 @@ Built by Hans + Bug. Web-first, one-touch, portrait.
 | 03 | Dune Rider | hold-release dune rider, near-miss multiplier | live |
 | 04 | Helix Descend | drag-rotate helix tower, fireball streaks | live |
 | 05 | Slice Storm | swipe fruit slicer, FRENZY slow-mo, golden fruit | live |
+| 06 | Chroma Fall | color-match faller, tap to flap | live |
+| 07 | Neon Keys | piano tiles, accelerating, hold-note chords | live |
 
 ## Reference
 - `docs/Crushing_Hyper_Casual_v1.3.pdf` — the playbook.
