@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#070818">
+<title>Orbit</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#070818; }
+  body { position:fixed; inset:0; width:100%; touch-action:none; user-select:none; -webkit-user-select:none; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #c { display:block; width:100%; height:100%; }
+  #mute { position:fixed; top:calc(env(safe-area-inset-top,0px) + 10px); right:12px; z-index:10;
+    width:40px; height:40px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
+    background:rgba(10,12,26,.55); color:#cfd6ff; font-size:17px; cursor:pointer; backdrop-filter:blur(6px); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="mute" aria-label="mute">♪</button>
+<script>
+"use strict";
+/* Orbit — Flappy Bird reimagined. Tap to thrust; gravity wells bend your flight.
+   Thread the gates. Ride a well's slingshot or fight it. Touch a barrier,
+   the ground, or the ceiling and the run ends. Death is always your fault. */
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let W=0, H=0, DPR=1;
+function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); layout(); }
+addEventListener('resize', resize);
+
+// ---------- audio ----------
+let AC=null, muted=false, masterGain=null;
+function audio(){ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)();
+  masterGain=AC.createGain(); masterGain.gain.value=0.45; masterGain.connect(AC.destination); } return AC; }
+const PENTA=[0,2,4,7,9,12,14,16,19,21,24];
+function gateFreq(n){ const s=PENTA[n%PENTA.length]+12*Math.floor(n/PENTA.length);
+  return 523.25*Math.pow(2,s/12); }
+function blip(freq,dur,type,vol){ if(muted) return; const ac=audio(); if(ac.state==='suspended') ac.resume();
+  const o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
+  o.type=type||'triangle'; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol||0.5,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+(dur||0.18));
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+(dur||0.18)+0.05); }
+function playFlap(){ blip(340+Math.random()*60,0.12,'triangle',0.28); }
+function playGate(n){ blip(gateFreq(n),0.28,'sine',0.55); }
+function playDeath(){ if(muted) return; const ac=audio(); if(ac.state==='suspended') ac.resume();
+  const o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
+  o.type='sawtooth'; o.frequency.setValueAtTime(220,t); o.frequency.exponentialRampToValueAtTime(48,t+0.4);
+  g.gain.setValueAtTime(0.5,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.45);
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.5); }
+function suspendAudio(){ if(AC && AC.state==='running') AC.suspend(); }
+function resumeAudio(){ if(AC && AC.state==='suspended' && !muted) AC.resume(); }
+document.addEventListener('visibilitychange', ()=> document.hidden ? suspendAudio() : resumeAudio());
+addEventListener('blur', suspendAudio); addEventListener('focus', resumeAudio);
+addEventListener('pagehide', suspendAudio);
+document.getElementById('mute').onclick=e=>{ e.stopPropagation(); muted=!muted;
+  document.getElementById('mute').textContent = muted?'✕':'♪';
+  if(muted) suspendAudio(); else resumeAudio(); };
+document.getElementById('mute').addEventListener('pointerdown', e=> e.stopPropagation());
+
+// ---------- layout ----------
+let GW=0, GX=0, groundH=0;
+function layout(){ GW=Math.min(W,480); GX=(W-GW)/2; groundH=Math.max(26,H*0.035); }
+
+// ---------- state ----------
+const BEST_KEY='orbit_best';
+let best=parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0;
+let mode='menu'; // menu | play | over
+let score=0, elapsed=0, shakeT=0, flashT=0, scrollX=0;
+let gates=[], wells=[], particles=[], floaters=[], stars=[];
+let G=0, FLAP=0, MAXFALL=0, MAXRISE=0, scroll=0, PR=0, anchorX=0;
+const player={ x:0, y:0, ox:0, oxv:0, vy:0, r:10, trail:[] };
+
+function fitFont(text, base, maxW, weight){ ctx.font=`${weight||700} ${base}px system-ui,sans-serif`;
+  const w=ctx.measureText(text).width; if(w>maxW) return base*(maxW/w); return base; }
+
+function physics(){ G=H*2.35; FLAP=H*0.66; MAXFALL=H*1.45; MAXRISE=-H*1.15;
+  PR=Math.max(9,Math.min(GW,H)*0.030); player.r=PR; anchorX=GX+GW*0.34; }
+
+function makeStars(){
+  stars=[];
+  const n=Math.floor(GW*H/9000);
+  for(let i=0;i<n;i++) stars.push({x:Math.random()*W, y:Math.random()*H,
+    z:Math.random(), r:0.5+Math.random()*1.8, tw:Math.random()*6.28});
+}
+function nebulae(){
+  return [ {x:GX+GW*0.2,y:H*0.24,r:GW*0.75,c:'rgba(76,29,149,0.20)'},
+           {x:GX+GW*0.85,y:H*0.62,r:GW*0.65,c:'rgba(14,116,144,0.16)'},
+           {x:GX+GW*0.5,y:H*0.92,r:GW*0.55,c:'rgba(190,24,93,0.10)'} ];
+}
+
+function gapH(){ return Math.max(H*0.21, H*0.30 - score*H*0.0022); }
+function scrollSpeed(){ return Math.min(GW*1.05, GW*0.52 + score*GW*0.009); }
+function wellStrength(){ return Math.min(H*4.4, H*3.0 + score*H*0.025); }
+function gateSpacing(){ return GW*1.02; }
+
+function spawnGate(x){
+  const gh=gapH();
+  const gy=H*0.18+gh/2 + Math.random()*(H*0.64-groundH-gh);
+  gates.push({x:x, w:GW*0.15, gapY:gy, gapH:gh, scored:false, hue:Math.random()<0.5});
+  // well tucked between gates, or inside the gap as a tradeoff
+  const r=Math.random();
+  if(r<0.42){
+    spawnWell(x+gateSpacing()*0.5+(Math.random()-0.5)*GW*0.2,
+              H*0.15+Math.random()*(H*0.7-groundH-H*0.15));
+  } else if(r<0.62){
+    spawnWell(x+GW*0.075, gy+(Math.random()-0.5)*gh*0.9); // inside the gap: ride it or fight it
+  }
+}
+function spawnWell(x,y){
+  const hue=Math.random()<0.5 ? 'cyan' : 'magenta';
+  wells.push({x:x, y:y, r:GW*0.34, strength:wellStrength(), hue:hue,
+    spin:1.6+Math.random()*1.4, phase:Math.random()*6.28});
+}
+
+function reset(){
+  physics(); makeStars();
+  gates=[]; wells=[]; particles=[]; floaters=[]; scrollX=0;
+  score=0; elapsed=0; shakeT=0; flashT=0;
+  player.x=anchorX; player.y=H*0.44; player.ox=0; player.oxv=0; player.vy=0; player.trail=[];
+  scroll=scrollSpeed();
+  let x=GX+GW+GW*0.35;
+  for(let i=0;i<5;i++){ spawnGate(x); x+=gateSpacing(); }
+}
+function startGame(){ reset(); mode='play'; }
+function flap(){ player.vy=-FLAP; playFlap();
+  for(let i=0;i<6;i++) particles.push({x:player.x+player.ox,y:player.y+player.r,
+    vx:(Math.random()-0.5)*GW*0.3, vy:GW*(0.2+Math.random()*0.5), life:0.35, r:1.5+Math.random()*2,
+    c:'255,190,90'}); }
+
+function die(){
+  if(mode!=='play') return;
+  mode='over'; playDeath();
+  if(navigator.vibrate) try{ navigator.vibrate([50,40,60]); }catch(e){}
+  shakeT=0.4; flashT=0.25;
+  for(let i=0;i<26;i++){ const a=Math.random()*6.28, s=GW*(0.2+Math.random()*0.9);
+    particles.push({x:player.x+player.ox,y:player.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,
+      life:0.6+Math.random()*0.4, r:2+Math.random()*3, c:'255,120,80'}); }
+  if(score>best){ best=score; localStorage.setItem(BEST_KEY,String(best)); }
+}
+
+function circleRect(cx,cy,cr,rx,ry,rw,rh){
+  const nx=Math.max(rx,Math.min(cx,rx+rw)), ny=Math.max(ry,Math.min(cy,ry+rh));
+  const dx=cx-nx, dy=cy-ny; return dx*dx+dy*dy < cr*cr;
+}
+
+function update(dt){
+  elapsed+=dt; scroll=scrollSpeed();
+  const px=player.x+player.ox;
+  // gravity
+  player.vy+=G*dt;
+  // wells bend the flight path
+  for(const wl of wells){
+    const dx=wl.x-px, dy=wl.y-player.y;
+    const d=Math.hypot(dx,dy);
+    if(d<wl.r && d>6){
+      const fall=Math.pow(1-d/wl.r,2);
+      const f=wl.strength*fall;
+      const ux=dx/d, uy=dy/d;
+      player.oxv+=ux*f*dt;                 // radial pull (horizontal drift)
+      player.vy+=uy*f*dt;                  // radial pull (vertical)
+      player.oxv+=(-uy)*f*0.28*dt;         // tangential swirl: slingshot curve
+      player.vy+=(ux)*f*0.28*dt;
+      wl.phase+=dt*wl.spin*(1.2-fall*0.5);
+    }
+  }
+  // spring the horizontal drift back to the anchor
+  player.oxv+=-player.ox*9*dt;
+  player.oxv*=Math.max(0,1-2.2*dt);
+  const maxOxv=GW*1.4;
+  player.oxv=Math.max(-maxOxv,Math.min(maxOxv,player.oxv));
+  player.ox+=player.oxv*dt;
+  player.ox=Math.max(-GW*0.14,Math.min(GW*0.14,player.ox));
+  // clamp vertical speed
+  player.vy=Math.max(MAXRISE,Math.min(MAXFALL,player.vy));
+  player.y+=player.vy*dt;
+  // trail
+  player.trail.push({x:px,y:player.y,life:0.5});
+  if(player.trail.length>42) player.trail.shift();
+  for(const t of player.trail) t.life-=dt;
+  player.trail=player.trail.filter(t=>t.life>0);
+
+  // scroll world
+  const dxs=scroll*dt; scrollX+=dxs;
+  for(const g of gates) g.x-=dxs;
+  for(const wl of wells) wl.x-=dxs;
+  while(gates.length && gates[gates.length-1].x < GX+GW+gateSpacing()) spawnGate(gates[gates.length-1].x+gateSpacing());
+  gates=gates.filter(g=>g.x+g.w>GX-GW*0.4);
+  wells=wells.filter(wl=>wl.x+wl.r>GX-GW*0.4);
+
+  // score
+  for(const g of gates){
+    if(!g.scored && g.x+g.w < px){
+      g.scored=true; score++;
+      playGate(score);
+      floaters.push({text:'+1',x:px,y:player.y-34,life:0.8,c:'#ffd166'});
+      if(navigator.vibrate) try{ navigator.vibrate(8); }catch(e){}
+      for(let i=0;i<10;i++){ const a=Math.random()*6.28, s=GW*(0.15+Math.random()*0.4);
+        particles.push({x:px,y:player.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,
+          life:0.5,r:1.5+Math.random()*2.5,c:'255,209,102'}); }
+    }
+  }
+
+  // collisions: barriers, ground, ceiling
+  const pr=player.r*0.82;
+  if(player.y-pr<0 || player.y+pr>H-groundH){ die(); return; }
+  for(const g of gates){
+    const topH=g.gapY-g.gapH/2, botY=g.gapY+g.gapH/2;
+    if(circleRect(px,player.y,pr,g.x,0,g.w,topH) ||
+       circleRect(px,player.y,pr,g.x,botY,g.w,H-groundH-botY)){ die(); return; }
+  }
+
+  // particles / floaters / stars
+  for(const p of particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=Math.max(0,1-3*dt); p.vy*=Math.max(0,1-3*dt); p.life-=dt; }
+  particles=particles.filter(p=>p.life>0);
+  for(const f of floaters){ f.y-=H*0.07*dt; f.life-=dt; }
+  floaters=floaters.filter(f=>f.life>0);
+  for(const s of stars){ s.x-=scroll*dt*(0.12+s.z*0.5); s.tw+=dt*3;
+    if(s.x<-4){ s.x=W+4; s.y=Math.random()*H; } }
+  if(shakeT>0) shakeT-=dt; if(flashT>0) flashT-=dt;
+}
+
+// ---------- input ----------
+function onTap(x,y){
+  if(mode==='menu'){ startGame(); return; }
+  if(mode==='over'){ startGame(); return; }
+  flap();
+}
+cv.addEventListener('pointerdown', e=>{ e.preventDefault(); audio();
+  if(AC && AC.state==='suspended' && !muted) AC.resume(); onTap(e.clientX,e.clientY); });
+addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); audio(); onTap(W/2,H/2); } });
+
+// ---------- render ----------
+function draw(){
+  ctx.save();
+  if(shakeT>0){ const s=shakeT*26; ctx.translate((Math.random()-0.5)*s,(Math.random()-0.5)*s); }
+  // space
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0a0b24'); g.addColorStop(0.55,'#070818'); g.addColorStop(1,'#0d0722');
+  ctx.fillStyle=g; ctx.fillRect(-30,-30,W+60,H+60);
+  // nebulae
+  for(const n of nebulae()){ const ng=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r);
+    ng.addColorStop(0,n.c); ng.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=ng; ctx.fillRect(n.x-n.r,n.y-n.r,n.r*2,n.r*2); }
+  // game column frame on wide screens
+  if(GX>0){ ctx.strokeStyle='rgba(140,160,255,0.12)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(GX+0.5,0); ctx.lineTo(GX+0.5,H);
+    ctx.moveTo(GX+GW-0.5,0); ctx.lineTo(GX+GW-0.5,H); ctx.stroke(); }
+  // stars
+  for(const s of stars){ const a=0.35+0.4*(0.5+0.5*Math.sin(s.tw))*(0.3+s.z*0.7);
+    ctx.globalAlpha=a; ctx.fillStyle='#dfe6ff';
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r*(0.6+s.z),0,6.29); ctx.fill(); }
+  ctx.globalAlpha=1;
+
+  if(mode==='menu'){ drawMenu(); }
+  else {
+    drawWells(); drawGates(); drawPlayer(); drawGround(); drawHUD();
+    if(mode==='over') drawOver();
+  }
+  // particles
+  for(const p of particles){ ctx.globalAlpha=Math.max(0,Math.min(1,p.life*2));
+    ctx.fillStyle=`rgba(${p.c},1)`;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.29); ctx.fill(); }
+  ctx.globalAlpha=1;
+  // floaters
+  ctx.textAlign='center';
+  for(const f of floaters){ ctx.globalAlpha=Math.min(1,f.life*2);
+    ctx.font='700 20px system-ui,sans-serif'; ctx.fillStyle=f.c; ctx.fillText(f.text,f.x,f.y); }
+  ctx.globalAlpha=1;
+  if(flashT>0){ ctx.fillStyle=`rgba(255,70,90,${flashT*1.6})`; ctx.fillRect(-30,-30,W+60,H+60); }
+  ctx.restore();
+}
+
+function drawWells(){
+  for(const wl of wells){
+    const col = wl.hue==='cyan' ? '34,211,238' : '240,80,220';
+    // faint influence zone
+    ctx.strokeStyle=`rgba(${col},0.10)`; ctx.lineWidth=1; ctx.setLineDash([3,9]);
+    ctx.beginPath(); ctx.arc(wl.x,wl.y,wl.r,0,6.29); ctx.stroke(); ctx.setLineDash([]);
+    // core glow
+    const cg=ctx.createRadialGradient(wl.x,wl.y,0,wl.x,wl.y,PR*3.4);
+    cg.addColorStop(0,`rgba(${col},0.85)`); cg.addColorStop(0.4,`rgba(${col},0.28)`); cg.addColorStop(1,`rgba(${col},0)`);
+    ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(wl.x,wl.y,PR*3.4,0,6.29); ctx.fill();
+    // swirling rings
+    for(let k=0;k<2;k++){
+      const rr=PR*(3.2+k*2.6), rot=wl.phase*(k?-1:1)+k*1.3;
+      ctx.strokeStyle=`rgba(${col},${0.75-k*0.25})`; ctx.lineWidth=2.5-k*0.7;
+      ctx.setLineDash([rr*0.5,rr*0.34]);
+      ctx.lineDashOffset=-rot*rr;
+      ctx.beginPath(); ctx.arc(wl.x,wl.y,rr,0,6.29); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // orbiting sparks
+    for(let i=0;i<6;i++){ const a=wl.phase*1.4+i*1.047, rr=PR*5.2;
+      ctx.fillStyle=`rgba(${col},0.8)`;
+      ctx.beginPath(); ctx.arc(wl.x+Math.cos(a)*rr,wl.y+Math.sin(a)*rr,1.8,0,6.29); ctx.fill(); }
+  }
+}
+
+function drawGates(){
+  for(const g of gates){
+    const topH=g.gapY-g.gapH/2, botY=g.gapY+g.gapH/2;
+    const edge = g.hue ? '34,211,238' : '168,130,255';
+    // slabs
+    const sg=ctx.createLinearGradient(g.x,0,g.x+g.w,0);
+    sg.addColorStop(0,'#14162e'); sg.addColorStop(0.5,'#1d2040'); sg.addColorStop(1,'#12142a');
+    ctx.fillStyle=sg;
+    roundRect(g.x,0,g.w,topH,8); ctx.fill();
+    roundRect(g.x,botY,g.w,H-groundH-botY,8); ctx.fill();
+    // neon lips facing the gap
+    ctx.save(); ctx.shadowColor=`rgba(${edge},0.9)`; ctx.shadowBlur=14;
+    ctx.fillStyle=`rgba(${edge},0.95)`;
+    ctx.fillRect(g.x+4,topH-3,g.w-8,5);
+    ctx.fillRect(g.x+4,botY-2,g.w-8,5);
+    ctx.restore();
+    // faint hazard ticks
+    ctx.fillStyle=`rgba(${edge},0.25)`;
+    for(let y=12;y<topH-8;y+=26) ctx.fillRect(g.x+g.w/2-1,y,2,10);
+    for(let y=botY+12;y<H-groundH-8;y+=26) ctx.fillRect(g.x+g.w/2-1,y,2,10);
+  }
+}
+function roundRect(x,y,w,h,r){ if(w<=0||h<=0) return; r=Math.min(r,w/2,h/2);
+  ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+function drawPlayer(){
+  const px=player.x+player.ox, py=player.y;
+  // trail
+  for(let i=0;i<player.trail.length;i++){ const t=player.trail[i];
+    const k=i/player.trail.length;
+    ctx.globalAlpha=t.life*1.4*k;
+    ctx.fillStyle='rgba(255,170,70,1)';
+    ctx.beginPath(); ctx.arc(t.x,t.y,PR*0.55*k+0.6,0,6.29); ctx.fill(); }
+  ctx.globalAlpha=1;
+  // orbit ring
+  ctx.save(); ctx.translate(px,py); ctx.rotate(elapsed*2.2);
+  ctx.strokeStyle='rgba(255,200,110,0.55)'; ctx.lineWidth=1.6;
+  ctx.setLineDash([7,9]); ctx.beginPath(); ctx.arc(0,0,PR*1.7,0,6.29); ctx.stroke();
+  ctx.setLineDash([]); ctx.restore();
+  // amber orb
+  ctx.save(); ctx.shadowColor='#ffb347'; ctx.shadowBlur=22;
+  const og=ctx.createRadialGradient(px-PR*0.3,py-PR*0.3,1,px,py,PR);
+  og.addColorStop(0,'#fff3d6'); og.addColorStop(0.45,'#ffc44d'); og.addColorStop(1,'#e07b1f');
+  ctx.fillStyle=og; ctx.beginPath(); ctx.arc(px,py,PR,0,6.29); ctx.fill();
+  ctx.restore();
+}
+
+function drawGround(){
+  const gy=H-groundH;
+  const gg=ctx.createLinearGradient(0,gy,0,H);
+  gg.addColorStop(0,'#1a1440'); gg.addColorStop(1,'#0b0820');
+  ctx.fillStyle=gg; ctx.fillRect(-30,gy,W+60,groundH+30);
+  ctx.fillStyle='rgba(240,80,220,0.5)'; ctx.fillRect(-30,gy,W+60,2);
+  // ceiling wire
+  ctx.fillStyle='rgba(140,160,255,0.25)'; ctx.fillRect(-30,0,W+60,2);
+}
+
+function drawHUD(){
+  ctx.textAlign='center';
+  const fs=fitFont('999',64,GW*0.4,800); ctx.font=`800 ${fs}px system-ui,sans-serif`;
+  ctx.save(); ctx.shadowColor='rgba(160,180,255,0.8)'; ctx.shadowBlur=12;
+  ctx.fillStyle='rgba(238,241,255,0.92)';
+  ctx.fillText(String(score), GX+GW/2, 84); ctx.restore();
+  if(best>0){ ctx.fillStyle='rgba(200,210,255,0.45)'; ctx.font='600 13px system-ui,sans-serif';
+    ctx.fillText('BEST '+best, GX+GW/2, 108); }
+}
+
+function drawMenu(){
+  const cx=GX+GW/2;
+  // ambient wells behind the title
+  const t=performance.now()/1000;
+  const demos=[{x:cx-GW*0.28,y:H*0.62,r:GW*0.3,hue:'cyan',ph:t*1.8},
+               {x:cx+GW*0.3,y:H*0.5,r:GW*0.26,hue:'magenta',ph:-t*1.5}];
+  for(const d of demos){ const col=d.hue==='cyan'?'34,211,238':'240,80,220';
+    ctx.strokeStyle=`rgba(${col},0.5)`; ctx.lineWidth=2; ctx.setLineDash([10,8]);
+    ctx.lineDashOffset=d.ph*20; ctx.beginPath(); ctx.arc(d.x,d.y,d.r*0.45,0,6.29); ctx.stroke();
+    ctx.setLineDash([]); }
+  ctx.textAlign='center';
+  const ts=fitFont('ORBIT',76,GW*0.9,800);
+  ctx.font=`800 ${ts}px system-ui,sans-serif`;
+  const tg=ctx.createLinearGradient(0,H*0.26-ts,0,H*0.26);
+  tg.addColorStop(0,'#22d3ee'); tg.addColorStop(0.55,'#a78bfa'); tg.addColorStop(1,'#f050dc');
+  ctx.fillStyle=tg; ctx.shadowColor='#22d3ee'; ctx.shadowBlur=28;
+  ctx.fillText('ORBIT', cx, H*0.26); ctx.shadowBlur=0;
+  const s1=fitFont('Ride the gravity wells. Thread the gates.',16,GW*0.88,500);
+  ctx.font=`500 ${s1}px system-ui,sans-serif`; ctx.fillStyle='rgba(215,224,255,0.8)';
+  ctx.fillText('Ride the gravity wells. Thread the gates.', cx, H*0.26+32);
+  const s2=fitFont('Tap to thrust. Barriers, ground and ceiling kill.',14,GW*0.88,500);
+  ctx.font=`500 ${s2}px system-ui,sans-serif`; ctx.fillStyle='rgba(215,224,255,0.5)';
+  ctx.fillText('Tap to thrust. Barriers, ground and ceiling kill.', cx, H*0.26+56);
+  if(best>0){ ctx.fillStyle='rgba(255,209,102,0.9)'; ctx.font='700 16px system-ui,sans-serif';
+    ctx.fillText('BEST '+best, cx, H*0.26+84); }
+  // demo orb bobbing
+  const by=H*0.52+Math.sin(t*2.4)*14;
+  ctx.save(); ctx.shadowColor='#ffb347'; ctx.shadowBlur=20;
+  const og=ctx.createRadialGradient(cx-3,by-3,1,cx,by,12);
+  og.addColorStop(0,'#fff3d6'); og.addColorStop(0.5,'#ffc44d'); og.addColorStop(1,'#e07b1f');
+  ctx.fillStyle=og; ctx.beginPath(); ctx.arc(cx,by,12,0,6.29); ctx.fill(); ctx.restore();
+  const p=0.5+0.5*Math.sin(t*4);
+  ctx.fillStyle=`rgba(255,255,255,${0.35+0.4*p})`;
+  const hs=fitFont('TAP TO START',20,GW*0.7,700); ctx.font=`700 ${hs}px system-ui,sans-serif`;
+  ctx.fillText('TAP TO START', cx, H*0.74);
+}
+
+function drawOver(){
+  const cx=GX+GW/2;
+  ctx.fillStyle='rgba(4,5,16,0.72)'; ctx.fillRect(-30,-30,W+60,H+60);
+  ctx.textAlign='center'; ctx.fillStyle='#ff5d73';
+  const ts=fitFont('GAME OVER',54,GW*0.85,800); ctx.font=`800 ${ts}px system-ui,sans-serif`;
+  ctx.shadowColor='#ff5d73'; ctx.shadowBlur=22; ctx.fillText('GAME OVER', cx, H*0.36); ctx.shadowBlur=0;
+  ctx.fillStyle='#eef1ff';
+  const ss=fitFont(String(score),76,GW*0.5,800); ctx.font=`800 ${ss}px system-ui,sans-serif`;
+  ctx.fillText(String(score), cx, H*0.36+84);
+  ctx.fillStyle='rgba(210,220,255,0.6)'; ctx.font='600 15px system-ui,sans-serif';
+  ctx.fillText('BEST '+best+(score>=best&&score>0?'  •  NEW BEST':''), cx, H*0.36+116);
+  const p=0.5+0.5*Math.sin(performance.now()/350);
+  ctx.fillStyle=`rgba(255,255,255,${0.35+0.4*p})`;
+  const hs=fitFont('TAP TO RETRY',19,GW*0.7,700); ctx.font=`700 ${hs}px system-ui,sans-serif`;
+  ctx.fillText('TAP TO RETRY', cx, H*0.64);
+}
+
+// ---------- loop ----------
+let last=performance.now();
+function frame(now){
+  let dt=(now-last)/1000; last=now; dt=Math.min(dt,0.05);
+  if(mode==='play') update(dt);
+  else elapsed+=dt;
+  draw();
+  requestAnimationFrame(frame);
+}
+resize(); reset(); requestAnimationFrame(frame);
+
+// debug hooks
+window.__ob={ get mode(){return mode}, get score(){return score}, get best(){return best},
+  get player(){return player}, get gates(){return gates}, get wells(){return wells},
+  get W(){return W}, get H(){return H}, get GX(){return GX}, get GW(){return GW},
+  start:startGame, flap:flap, reset:reset };
+</script>
+</body>
+</html>
