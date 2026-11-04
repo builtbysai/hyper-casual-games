@@ -1,7 +1,7 @@
 # Hyper-Casual Mega List
 
 Model-and-improve per Trey Smith's playbook. One-touch/swipe, portrait only.
-Working down in order. Done: 01-05. 06 in progress.
+Working down in order. Done: 01-05, 07, 08. 06 in progress.
 
 ## Done
 - 01 Stack Twist (Stack) — wind gusts, real 3D
@@ -15,7 +15,7 @@ Working down in order. Done: 01-05. 06 in progress.
 
 ## Up Next
 - 07 Neon Keys (Piano Tiles) — DONE 2026-11-02 — tiles accelerate, hold-notes for chords
-- 08 Orbit (Flappy Bird) — gravity wells bend your flight path
+- 08 Orbit (Flappy Bird) — DONE 2026-11-04 — gravity wells bend your flight path, slingshot curves
 - 09 Skyhook (Doodle Jump) — grappling hook between platforms, momentum swings
 - 10 Neon Serpent (Snake) — snake splits in two, steer both at once
 - 11 Bloom (Agar.io) — absorb matching colors, your complement kills you
