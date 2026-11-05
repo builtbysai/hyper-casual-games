@@ -1,286 +1,372 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>06 — Chroma Fall</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b0c15">
+<title>Chroma Fall | Color in motion</title>
 <style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0b14; touch-action: none; }
-  canvas { display: block; width: 100vw; height: 100vh; }
+:root { color-scheme:dark; --ink:#f8f6fa; --soft:#a9a8ba; --edge:rgba(255,255,255,.14); --current:#ff547f; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+* { box-sizing:border-box; }
+[hidden] { display:none!important; }
+html,body { width:100%; height:100%; margin:0; overflow:hidden; background:#0b0c15; overscroll-behavior:none; }
+body { -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }
+button { font:inherit; -webkit-tap-highlight-color:transparent; }
+#app { position:fixed; inset:0; overflow:hidden; touch-action:none; isolation:isolate; }
+#game { position:absolute; inset:0; display:block; width:100%; height:100%; touch-action:none; }
+#app::after { content:""; pointer-events:none; position:absolute; inset:0; z-index:1; background:linear-gradient(180deg,rgba(5,7,15,.28),transparent 21%,transparent 75%,rgba(5,7,15,.40)); }
+#hud { position:absolute; z-index:3; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top,0px) + 22px) max(22px,calc((100vw - 620px)/2)); display:flex; justify-content:space-between; align-items:flex-start; pointer-events:none; opacity:0; transition:opacity .23s ease; }
+#app.playing #hud,#app.paused #hud { opacity:1; }
+.scoreblock { display:flex; align-items:flex-start; gap:15px; }
+.scoreblock::before { content:""; display:block; width:3px; height:57px; background:var(--current); border-radius:2px; box-shadow:0 0 20px var(--current); transition:background .2s ease; }
+.micro { display:block; font-size:10px; font-weight:800; color:#aaaabc; letter-spacing:.22em; line-height:1.3; }
+#score { display:block; font-size:clamp(40px,9vw,56px); font-weight:800; letter-spacing:-.085em; line-height:.95; font-variant-numeric:tabular-nums; }
+.bestline { margin-top:10px; font-size:11px; color:#a5a5b8; font-weight:650; letter-spacing:.08em; }
+#best { color:#f6f4fa; font-variant-numeric:tabular-nums; }
+.actions { pointer-events:auto; display:flex; gap:9px; }
+.iconbutton { width:41px; height:41px; display:grid; place-items:center; border:1px solid rgba(255,255,255,.17); background:rgba(16,18,32,.55); color:#faf9ff; border-radius:12px; cursor:pointer; backdrop-filter:blur(8px); transition:background .15s,border-color .15s,transform .15s; }
+.iconbutton:active { transform:scale(.94); }
+.iconbutton:hover { background:rgba(36,39,61,.85); border-color:rgba(255,255,255,.35); }
+.iconbutton:focus-visible,.primary:focus-visible { outline:2px solid #82f7fb; outline-offset:4px; }
+.iconbutton svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linejoin:round; stroke-linecap:round; }
+#soundOff { display:none; }
+#app.muted #soundOn { display:none; }
+#app.muted #soundOff { display:block; }
+#playHint { position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 33px); left:0; right:0; text-align:center; pointer-events:none; z-index:3; opacity:0; transition:opacity .3s; }
+#app.playing #playHint { opacity:1; }
+#playHint strong { display:block; font-size:10px; color:#efecf8; letter-spacing:.23em; font-weight:800; }
+#playHint small { display:block; margin-top:8px; font-size:10px; color:#a1a0b6; letter-spacing:.06em; }
+#progress { position:absolute; z-index:3; left:50%; transform:translateX(-50%); bottom:calc(env(safe-area-inset-bottom,0px) + 96px); display:flex; align-items:center; gap:8px; pointer-events:none; opacity:0; transition:opacity .24s; }
+#app.playing #progress { opacity:1; }
+#progress .pip { height:4px; width:20px; border-radius:4px; background:rgba(255,255,255,.14); }
+#progress .pip.active { background:var(--current); box-shadow:0 0 12px var(--current); }
+#progress .pip.done { background:rgba(255,255,255,.60); }
+#screen { position:absolute; z-index:5; inset:0; display:flex; justify-content:center; align-items:center; padding:calc(50px + env(safe-area-inset-top,0px)) 25px calc(48px + env(safe-area-inset-bottom,0px)); background:radial-gradient(ellipse 65% 38% at 50% 49%,rgba(7,8,18,.86),rgba(7,8,18,.42) 75%,rgba(7,8,18,.24)); text-align:center; transition:opacity .25s,visibility .25s; }
+#screen.hidden { opacity:0; visibility:hidden; pointer-events:none; }
+.panel { position:relative; width:min(100%,450px); display:flex; flex-direction:column; align-items:center; }
+.emblem { position:relative; width:62px; height:62px; border-radius:50%; margin-bottom:28px; background:conic-gradient(from -45deg,#fbce63 0 25%,#8b80ff 25% 50%,#08d9d6 50% 75%,#ff547f 75% 100%); box-shadow:0 0 40px rgba(165,111,235,.22); transform:rotate(-8deg); }
+.emblem::after { content:""; position:absolute; inset:13px; border-radius:50%; background:#0d0e19; box-shadow:inset 0 0 8px rgba(255,255,255,.12); }
+.emblem::before { content:""; position:absolute; width:12px; height:12px; border-radius:50%; background:#f6f4fc; left:25px; top:25px; z-index:1; box-shadow:0 0 14px rgba(255,255,255,.65); }
+.eyebrow { font-size:10px; font-weight:800; letter-spacing:.3em; text-transform:uppercase; color:#a9a7ba; margin-bottom:14px; }
+h1,h2,p { margin:0; }
+h1 { font-weight:900; font-size:clamp(58px,15vw,90px); letter-spacing:-.087em; line-height:.85; color:#f8f6fa; }
+h1 span { color:#fbce63; }
+h2 { font-weight:850; font-size:clamp(44px,12vw,70px); letter-spacing:-.077em; line-height:.95; }
+.lead { max-width:290px; margin-top:24px; font-size:14px; line-height:1.7; font-weight:450; color:#c3c0d1; }
+.primary { margin-top:30px; min-width:202px; min-height:55px; border:0; border-radius:13px; background:#f4f1f9; color:#111320; font-size:12px; font-weight:850; letter-spacing:.2em; cursor:pointer; box-shadow:0 8px 35px rgba(244,241,249,.16); transition:transform .15s,background .15s; }
+.primary:hover { background:#fff; transform:translateY(-2px); }
+.primary:active { transform:scale(.97); }
+.caption { margin-top:20px; font-size:11px; color:#858397; line-height:1.6; letter-spacing:.035em; }
+#result { margin-top:25px; display:flex; justify-content:center; gap:35px; }
+.stat { min-width:74px; }
+.stat b { display:block; font-size:32px; font-variant-numeric:tabular-nums; letter-spacing:-.07em; }
+.stat span { display:block; margin-top:5px; font-size:10px; letter-spacing:.2em; color:#9694aa; font-weight:750; }
+#record { margin-top:17px; color:#fbce63; font-size:11px; letter-spacing:.18em; font-weight:800; }
+@media(max-height:610px) { .emblem { width:43px; height:43px; margin-bottom:14px; } .emblem::after { inset:9px; } .emblem::before { width:8px;height:8px;left:18px;top:18px; } .eyebrow { margin-bottom:9px; } h1 { font-size:clamp(45px,12vh,67px); } h2 { font-size:clamp(40px,10vh,57px); } .lead { margin-top:12px; font-size:12px; } .primary { margin-top:18px; min-height:47px; } .caption { margin-top:12px; } #result { margin-top:14px; } #screen { padding-top:25px;padding-bottom:25px; } }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; } }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<main id="app" class="ready">
+<canvas id="game" aria-label="Chroma Fall game. Tap or press Space to rise through matching color rings."></canvas>
+<header id="hud" aria-label="Game controls and score">
+  <div class="scoreblock"><div><span class="micro">SCORE</span><strong id="score">0</strong><div class="bestline">BEST <span id="best">0</span></div></div></div>
+  <div class="actions">
+    <button class="iconbutton" id="sound" type="button" aria-label="Mute sound" title="Sound"><svg id="soundOn" viewBox="0 0 24 24"><path d="M11 5 6.4 9H3v6h3.4l4.6 4V5Z"/><path d="M15 8a5 5 0 0 1 0 8M18 5a9 9 0 0 1 0 14"/></svg><svg id="soundOff" viewBox="0 0 24 24"><path d="M11 5 6.4 9H3v6h3.4l4.6 4V5Z"/><path d="m16 9 5 6m0-6-5 6"/></svg></button>
+    <button class="iconbutton" id="pause" type="button" aria-label="Pause game" title="Pause"><svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14" stroke-width="3"/></svg></button>
+  </div>
+</header>
+<div id="progress" aria-hidden="true"><span class="pip active"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span></div>
+<div id="playHint"><strong>TAP TO RISE</strong><small>Only your color passes the lower arc</small></div>
+<section id="screen" aria-live="polite"><div class="panel">
+  <div class="emblem" aria-hidden="true"></div>
+  <div class="eyebrow" id="eyebrow">A ONE-TOUCH COLOR RUN</div>
+  <h1 id="headline">CHROMA<br><span>FALL</span></h1>
+  <p id="lead" class="lead">Rise through rotating rings. Match the color beneath you, collect a new color, keep climbing.</p>
+  <div id="result" hidden><div class="stat"><b id="finalScore">0</b><span>SCORE</span></div><div class="stat"><b id="finalBest">0</b><span>BEST</span></div></div>
+  <div id="record" hidden>NEW PERSONAL BEST</div>
+  <button class="primary" id="start" type="button">START PLAYING</button>
+  <div id="caption" class="caption">Tap anywhere or press Space to lift.</div>
+</div></section>
+</main>
 <script>
-// CHROMA-FALL-06
-// Model: Color Switch. Tap to bounce the ball upward through rotating color gates.
-// Twist: the ball's color CYCLES automatically every 2.2s — you must time both
-// the bounce height AND the color to match the gate segment you pass through.
+(() => {
 'use strict';
-const cv = document.getElementById('c');
-const ctx = cv.getContext('2d');
-let W = 0, H = 0, DPR = 1, S = 1;
-function resize() {
-  DPR = Math.min(2, window.devicePixelRatio || 1);
-  W = window.innerWidth; H = window.innerHeight;
-  S = Math.max(0.85, Math.min(2.0, W / 400));
-  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+const canvas=document.getElementById('game'), ctx=canvas.getContext('2d',{alpha:false});
+const app=document.getElementById('app'), screen=document.getElementById('screen');
+const scoreEl=document.getElementById('score'), bestEl=document.getElementById('best');
+const headline=document.getElementById('headline'), eyebrow=document.getElementById('eyebrow');
+const lead=document.getElementById('lead'), result=document.getElementById('result');
+const finalScore=document.getElementById('finalScore'), finalBest=document.getElementById('finalBest');
+const record=document.getElementById('record'), startButton=document.getElementById('start');
+const caption=document.getElementById('caption'), soundButton=document.getElementById('sound');
+const progressPips=[...document.querySelectorAll('.pip')];
+const COLORS=['#ff547f','#16e1df','#fbce63','#a18aff'];
+const NAMES=['PINK','CYAN','GOLD','VIOLET'];
+const TAU=Math.PI*2, QUARTER=Math.PI/2;
+const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+let W=0,H=0,DPR=1,U=1,run=0,mode='ready',score=0,best=0,muted=false;
+let ball, gates=[],particles=[],notes=[],trail=[],camera=0,ambient=0,shake=0,flash=0;
+let created=0,lastTap=-10,ticking=0,prevTs=0,acc=0,lastPip=-1,runStartBest=0;
+let audio=null,firstDeathReason='';
+const rand=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function storageGet(key,fallback){try{return localStorage.getItem(key)??fallback}catch{return fallback}}
+function storagePut(key,value){try{localStorage.setItem(key,String(value))}catch{}}
+best=Number.parseInt(storageGet('chroma_best','0'),10)||0;
+muted=storageGet('chroma_muted','0')==='1';
+app.classList.toggle('muted',muted);bestEl.textContent=best;
+function resize(){
+  const oldU=U;
+  W=Math.max(1,window.innerWidth);H=Math.max(1,window.innerHeight);
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  U=clamp(Math.min(W/390,H/700),.73,1.22);
+  canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if(ball&&oldU!==U){const s=U/oldU;ball.y*=s;ball.vy*=s;camera*=s;ball.r=12*U;
+    for(const g of gates){g.y*=s;g.r*=s;g.orbY*=s;}
+    for(const p of particles){p.x=W/2+(p.x-W/2)*s;p.y*=s;p.vx*=s;p.vy*=s;}
+    trail=[];
+  }
+  if(ball)ball.x=W/2;
 }
-window.addEventListener('resize', resize);
+window.addEventListener('resize',resize,{passive:true});
 resize();
-
-// ---------- utils ----------
-function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-function fitFont(text, baseSize, maxW, weight = 800) {
-  let size = baseSize;
-  ctx.font = `${weight} ${size}px -apple-system, "Segoe UI", system-ui, sans-serif`;
-  while (ctx.measureText(text).width > maxW && size > 12) {
-    size -= 2;
-    ctx.font = `${weight} ${size}px -apple-system, "Segoe UI", system-ui, sans-serif`;
+function getAudio(){if(muted)return null;try{if(!audio){const AC=window.AudioContext||window.webkitAudioContext;if(AC)audio=new AC();}if(audio&&audio.state==='suspended')audio.resume();}catch{}return audio;}
+function tone(freq=400,duration=.09,volume=.06,type='sine',delay=0){
+  const ac=getAudio();if(!ac)return;
+  try{const now=ac.currentTime+delay,osc=ac.createOscillator(),gain=ac.createGain();
+    osc.type=type;osc.frequency.setValueAtTime(freq,now);osc.frequency.exponentialRampToValueAtTime(Math.max(30,freq*.65),now+duration);
+    gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(volume,now+.012);
+    gain.gain.exponentialRampToValueAtTime(.0001,now+duration);osc.connect(gain);gain.connect(ac.destination);osc.start(now);osc.stop(now+duration+.01);
+  }catch{}
+}
+function vibration(ms){if(!reduced.matches){try{navigator.vibrate?.(ms)}catch{}}}
+function newGate(y,index){
+  const first=index===0;
+  const color=first?0:((gates.length?gates[gates.length-1].color:0)+1+Math.floor(Math.random()*3))%4;
+  const speed=first?.28:(.47+Math.min(26,index)*.017+rand(0,.27))*(index%2?-1:1);
+  return {y,r:rand(67,74)*U,rot:first?Math.PI/4:rand(0,TAU),speed,color,entered:false,passed:false,orbY:y+320*U*.68,orbDone:first,index};
+}
+function reset(){
+  run++;score=0;runStartBest=best;created=0;camera=0;shake=0;flash=0;particles=[];notes=[];trail=[];lastTap=-10;
+  ball={x:W/2,y:H*.73,vy:0,r:12*U,color:0,glow:0};
+  gates=[];let y=ball.y-239*U;
+  for(let i=0;i<5;i++){gates.push(newGate(y,created++));y-=320*U;}
+  syncHud();
+}
+function syncHud(){scoreEl.textContent=score;bestEl.textContent=best;app.style.setProperty('--current',COLORS[ball.color]);
+  const pip=score%4;if(pip!==lastPip){lastPip=pip;progressPips.forEach((p,i)=>p.className='pip '+(i<pip?'done':i===pip?'active':''));}
+}
+function setMode(value){mode=value;app.className=value+(muted?' muted':'');screen.classList.toggle('hidden',value==='playing');
+  if(value==='ready'){
+    eyebrow.textContent='A ONE-TOUCH COLOR RUN';headline.innerHTML='CHROMA<br><span>FALL</span>';
+    lead.textContent='Rise through rotating rings. Match the color beneath you, collect a new color, keep climbing.';
+    result.hidden=true;record.hidden=true;startButton.textContent='START PLAYING';caption.textContent='Tap anywhere or press Space to lift.';
+  }else if(value==='dead'){
+    eyebrow.textContent='RUN COMPLETE';headline.textContent='COLOR LOST';lead.textContent=firstDeathReason;
+    result.hidden=false;record.hidden=!(score>runStartBest);finalScore.textContent=score;finalBest.textContent=best;
+    startButton.textContent='TRY AGAIN';caption.textContent='One more ring. One more run.';
+  }else if(value==='paused'){
+    eyebrow.textContent='TAKE YOUR TIME';headline.textContent='PAUSED';lead.textContent='Your run is right where you left it.';
+    result.hidden=false;record.hidden=true;finalScore.textContent=score;finalBest.textContent=best;
+    startButton.textContent='RESUME';caption.textContent='Press P or Space to continue.';
   }
 }
-
-// ---------- audio ----------
-let AC = null, muted = false;
-function initAudio() {
-  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+function begin(){
+  if(mode==='paused'){setMode('playing');prevTs=0;acc=0;return;}
+  reset();setMode('playing');boost();
 }
-function audioSuspend() { if (AC && AC.state === 'running') AC.suspend(); }
-function audioResume() { if (AC && AC.state === 'suspended' && !muted) AC.resume(); }
-document.addEventListener('visibilitychange', () => document.hidden ? audioSuspend() : audioResume());
-window.addEventListener('blur', audioSuspend);
-window.addEventListener('focus', audioResume);
-window.addEventListener('pagehide', audioSuspend);
-function beep(freq, dur, type = 'sine', vol = 0.15) {
-  if (!AC || muted) return;
-  const o = AC.createOscillator(), g = AC.createGain();
-  o.type = type; o.frequency.value = freq;
-  g.gain.setValueAtTime(vol, AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + dur);
-  o.connect(g); g.connect(AC.destination);
-  o.start(); o.stop(AC.currentTime + dur);
+function pause(){if(mode==='playing'){setMode('paused');acc=0;}else if(mode==='paused')begin();}
+function boost(){
+  if(mode!=='playing')return;
+  if(ticking-lastTap<.105)return;
+  lastTap=ticking;
+  ball.vy=-690*U;
+  ball.glow=1;
+  tone(280+ball.color*55,.085,.045,'triangle');
+  spawnBurst(ball.x,ball.y+10*U,COLORS[ball.color],4,.35);
 }
-function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
-
-// ---------- game state ----------
-const COLORS = ['#ff2e63', '#08d9d6', '#f9ed69', '#a06bff']; // pink, cyan, yellow, purple
-let state = 'ready'; // ready, play, dead
-let score = 0, best = 0;
-try { best = parseInt(localStorage.getItem('chroma_best') || '0'); } catch (e) {}
-
-// ball
-const ball = { x: 0, y: 0, vy: 0, r: 12, colorIdx: 0 };
-const GRAV = 2200 * S, BOUNCE_V = -1150 * S;
-
-// gates (rotating color rings)
-let gates = [];
-let camY = 0; // camera offset (world scrolls down as ball goes up)
-const GATE_GAP = 280 * S;
-
-function reset() {
-  score = 0;
-  ball.x = W / 2; ball.y = H * 0.65; ball.vy = 0;
-  ball.colorIdx = 0;
-  gates = [];
-  camY = 0;
-  // spawn first gates above
-  let y = ball.y - GATE_GAP;
-  for (let i = 0; i < 5; i++) {
-    gates.push(makeGate(y));
-    y -= GATE_GAP;
+function input(){getAudio();if(mode==='ready'||mode==='dead'){begin();return;}if(mode==='paused'){begin();return;}boost();}
+canvas.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();input();},{passive:false});
+screen.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();input();},{passive:false});
+startButton.addEventListener('click',e=>{e.stopPropagation();getAudio();begin();});
+document.getElementById('pause').addEventListener('click',e=>{e.stopPropagation();pause();});
+soundButton.addEventListener('click',e=>{e.stopPropagation();muted=!muted;storagePut('chroma_muted',muted?'1':'0');app.classList.toggle('muted',muted);soundButton.setAttribute('aria-label',muted?'Unmute sound':'Mute sound');if(muted&&audio)audio.suspend();else getAudio();});
+soundButton.setAttribute('aria-label',muted?'Unmute sound':'Mute sound');
+window.addEventListener('keydown',e=>{if(['Space','ArrowUp','Enter'].includes(e.code)){if(e.repeat)return;if(e.target?.tagName==='BUTTON'&&e.code==='Enter')return;e.preventDefault();input();}else if(e.code==='KeyP'||e.code==='Escape'){e.preventDefault();pause();}else if(e.code==='KeyM'){soundButton.click();} });
+document.addEventListener('visibilitychange',()=>{if(document.hidden){if(mode==='playing')pause();audio?.suspend();}prevTs=0;});
+window.addEventListener('blur',()=>{if(mode==='playing')pause();});
+function segment(g,angle){const theta=((angle-g.rot)%TAU+TAU)%TAU;return Math.floor(theta/QUARTER)%4;}
+function spawnBurst(x,y,color,count=14,power=1){
+  if(reduced.matches)return;
+  for(let i=0;i<count&&particles.length<120;i++){
+    const angle=rand(0,TAU),speed=rand(50,200)*U*power,life=rand(.24,.65);
+    particles.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,life,all:life,size:rand(1.4,4)*U,color});
   }
 }
-function makeGate(y) {
-  const r = (70 + Math.random() * 30) * S;
-  const rotSpeed = (0.6 + Math.random() * 0.8) * (Math.random() < 0.5 ? 1 : -1);
-  const segs = 4; // 4 color segments
-  return { y, r, rot: Math.random() * 6.28, rotSpeed, segs, passed: false };
+function addNote(label,x,y,color){notes.push({label,x,y,life:.8,color});}
+function die(message,color){
+  if(mode!=='playing')return;
+  firstDeathReason=message;
+  mode='dying';app.className='dying'+(muted?' muted':'');
+  shake=11*U;flash=.32;spawnBurst(ball.x,ball.y,color||COLORS[ball.color],34,1.6);
+  tone(190,.3,.12,'sawtooth');tone(110,.36,.07,'triangle',.07);vibration([40,35,75]);
+  const ending=run;
+  window.setTimeout(()=>{if(mode==='dying'&&run===ending)setMode('dead');},470);
 }
-
-// ---------- input ----------
-const muteBox = { x: 0, y: 0, w: 44, h: 44 };
-function onDown(x, y) {
-  initAudio();
-  if (AC && AC.state === 'suspended' && !muted) { try { AC.resume(); } catch (e) {} }
-  muteBox.x = W - 52; muteBox.y = 14;
-  if (x >= muteBox.x && x <= muteBox.x + muteBox.w && y >= muteBox.y && y <= muteBox.y + muteBox.h) {
-    muted = !muted;
-    if (muted) audioSuspend(); else audioResume();
-    return;
-  }
-  if (state === 'ready') { state = 'play'; reset(); }
-  else if (state === 'dead') { state = 'play'; reset(); return; }
-  if (state !== 'play') return;
-  // bounce! each bounce cycles the ball color (player controls color via timing)
-  ball.vy = BOUNCE_V;
-  ball.colorIdx = (ball.colorIdx + 1) % COLORS.length;
-  beep(440 + ball.colorIdx * 110, 0.08, 'sine', 0.12);
-  buzz(10);
-}
-cv.addEventListener('pointerdown', e => onDown(e.clientX, e.clientY));
-
-// ---------- update ----------
-let lastTs = 0;
-function update(dt) {
-  if (state !== 'play') return;
-
-  // ball physics
-  ball.vy += GRAV * dt;
-  ball.y += ball.vy * dt;
-
-  // camera follows ball upward
-  const targetCam = Math.min(0, H * 0.65 - ball.y);
-  camY += (targetCam - camY) * Math.min(1, dt * 5);
-
-  // gates rotate
-  for (const g of gates) {
-    g.rot += g.rotSpeed * dt;
-  }
-
-  // spawn new gates as needed
-  const topGateY = Math.min(...gates.map(g => g.y));
-  if (topGateY > camY - H) {
-    gates.push(makeGate(topGateY - GATE_GAP));
-  }
-  // remove gates far below
-  gates = gates.filter(g => g.y < camY + H + 200);
-
-  // collision: ball passes through gate from below (swept — check crossing)
-  // Simple: just pass through, score a point. No color death (colors are visual only).
-  for (const g of gates) {
-    if (g.passed) continue;
-    const ballWorldY = ball.y + camY;
-    const prevWorldY = ballWorldY - ball.vy * dt;
-    // did the ball cross the gate's Y moving upward?
-    if (ball.vy < 0 && prevWorldY > g.y && ballWorldY <= g.y) {
-      g.passed = true;
-      score++;
-      beep(880, 0.1, 'sine', 0.15);
-      buzz(15);
-      if (score > best) { best = score; try { localStorage.setItem('chroma_best', String(best)); } catch (e) {} }
+function step(dt){
+  ticking+=dt;
+  if(mode!=='playing')return;
+  const oldY=ball.y;
+  ball.vy+=1420*U*dt;
+  ball.y+=ball.vy*dt;
+  ball.glow=Math.max(0,ball.glow-dt*3);
+  const target=Math.max(0,H*.66-ball.y);
+  camera+=(Math.max(camera,target)-camera)*(1-Math.exp(-dt*7));
+  for(const g of gates)g.rot=(g.rot+g.speed*dt+TAU)%TAU;
+  // Pickups change color automatically, preserving one-touch control.
+  for(const g of gates){
+    if(g.orbDone)continue;
+    if(oldY>g.orbY+12*U&&ball.y<=g.orbY+12*U){
+      g.orbDone=true;ball.color=g.color;ball.glow=1.8;
+      // The first few pickups give a generous matching window, then timing takes over.
+      if(g.index<3)g.rot=(Math.PI/2-(g.color+.5)*QUARTER+TAU)%TAU;
+      spawnBurst(ball.x,g.orbY,COLORS[ball.color],25,.75);
+      addNote(NAMES[ball.color],ball.x,g.orbY-28*U,COLORS[ball.color]);
+      tone(540,.12,.09,'sine');tone(810,.14,.055,'sine',.055);syncHud();
     }
   }
-
-  // death if ball falls below screen
-  if (ball.y > H + 50) {
-    die();
-  }
-}
-function die() {
-  state = 'dead';
-  beep(220, 0.3, 'sawtooth', 0.15);
-  buzz(50);
-}
-
-// ---------- render ----------
-function render() {
-  // bg
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#0b0b14'); bg.addColorStop(1, '#1a1a2e');
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-
-  // color cycle indicator (arc around ball showing time until color change)
-
-  ctx.save();
-  ctx.translate(0, camY);
-
-  // gates
-  for (const g of gates) {
-    const sy = g.y;
-    if (sy < -100 || sy > H + 100) continue;
-    // draw 4 colored arc segments
-    for (let i = 0; i < g.segs; i++) {
-      const a0 = g.rot + i * (Math.PI * 2 / g.segs);
-      const a1 = a0 + (Math.PI * 2 / g.segs);
-      ctx.beginPath();
-      ctx.arc(W / 2, sy, g.r, a0, a1);
-      ctx.strokeStyle = COLORS[i % COLORS.length];
-      ctx.lineWidth = 14 * S;
-      ctx.stroke();
+  for(const g of gates){
+    if(g.passed)continue;
+    const contact=g.y+g.r+7.5*U+ball.r;
+    if(!g.entered&&ball.vy<0&&oldY>contact&&ball.y<=contact){
+      const active=segment(g,Math.PI/2);
+      if(active!==ball.color){
+        die('The lower arc was '+NAMES[active].toLowerCase()+'. Wait for your color before crossing.',COLORS[active]);
+        break;
+      }
+      g.entered=true;spawnBurst(ball.x,contact,COLORS[ball.color],9,.55);tone(620,.07,.05,'triangle');
     }
-    // gate center marker
-    ctx.fillStyle = 'rgba(255,255,255,0.1)';
-    ctx.beginPath(); ctx.arc(W / 2, sy, 4 * S, 0, 6.29); ctx.fill();
+    const exit=g.y-g.r-7.5*U-ball.r;
+    if(g.entered&&!g.passed&&oldY>=exit&&ball.y<exit){
+      g.passed=true;score++;
+      if(score>best){best=score;storagePut('chroma_best',best);}
+      syncHud();flash=.12;ball.glow=1.2;
+      spawnBurst(ball.x,g.y,COLORS[ball.color],24,1.1);
+      addNote(score%5===0?'SPECTRUM +'+score:'CLEAR',ball.x,g.y-35*U,COLORS[ball.color]);
+      tone(700,.14,.09,'sine');tone(1040,.17,.065,'sine',.08);vibration(16);
+    }
   }
-
-  // ball
-  const by = ball.y;
-  ctx.fillStyle = COLORS[ball.colorIdx];
-  ctx.beginPath(); ctx.arc(ball.x, by, ball.r * S, 0, 6.29); ctx.fill();
-  // glow
-  ctx.fillStyle = COLORS[ball.colorIdx] + '44';
-  ctx.beginPath(); ctx.arc(ball.x, by, ball.r * S * 1.8, 0, 6.29); ctx.fill();
-
+  if(mode!=='playing')return;
+  if(ball.y+camera>H+ball.r+60*U)die('Keep the rhythm going. Tap to stay in the air.');
+  if(gates.length){
+    let last=gates[gates.length-1];
+    while(last.y+camera > -H*.6&&gates.length<13){last=newGate(last.y-320*U,created++);gates.push(last);}
+    gates=gates.filter(g=>g.y+camera<H+340*U||!g.passed);
+  }
+  if(trail.length===0||Math.abs(ball.y-trail[trail.length-1].y)>7*U){trail.push({y:ball.y,color:COLORS[ball.color]});if(trail.length>14)trail.shift();}
+}
+function animateEffects(dt){
+  for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=150*U*dt;p.vx*=Math.max(0,1-dt*1.5);p.life-=dt;}
+  particles=particles.filter(p=>p.life>0);
+  for(const n of notes){n.y-=37*U*dt;n.life-=dt;}
+  notes=notes.filter(n=>n.life>0);
+  shake*=Math.exp(-dt*17);flash=Math.max(0,flash-dt);
+}
+function background(){
+  const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#0b0c17');bg.addColorStop(.52,'#131326');bg.addColorStop(1,'#080b14');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  const halo=ctx.createRadialGradient(W/2,H*.42,15,W/2,H*.42,Math.max(W,H)*.72);halo.addColorStop(0,'rgba(84,66,128,.17)');halo.addColorStop(.55,'rgba(43,30,84,.045)');halo.addColorStop(1,'rgba(3,5,10,0)');ctx.fillStyle=halo;ctx.fillRect(0,0,W,H);
+  const rail=Math.min(W*.34,165*U);
+  ctx.strokeStyle='rgba(175,169,222,.07)';ctx.lineWidth=1;
+  for(const side of [-1,1]){const x=W/2+side*rail;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let i=0;i<58;i++){
+    const seed=i*114.71, x=((Math.sin(seed)*1317.17)%1+1)%1*W;
+    const y=((Math.cos(seed*1.17)*863.13)%1+1)%1*H;
+    const yy=(y+camera*.045*(i%3+1))%H;
+    ctx.globalAlpha=.10+(i%7)/75;ctx.fillStyle='#c7c8ff';ctx.fillRect(x,yy,i%9===0?1.7:1,i%9===0?1.7:1);
+  }
+  ctx.globalAlpha=1;
+}
+function drawGate(g){
+  const sy=g.y+camera,r=g.r;
+  if(sy+r<-95||sy-r>H+95)return;
+  const cx=W/2, faded=g.passed?clamp(1-(score-g.index)*.25,.15,.65):1;
+  ctx.save();ctx.globalAlpha=faded;
+  ctx.beginPath();ctx.arc(cx,sy,r,0,TAU);ctx.strokeStyle='rgba(182,170,219,.095)';ctx.lineWidth=19*U;ctx.stroke();
+  for(let i=0;i<4;i++){
+    const a0=g.rot+i*QUARTER+.045,a1=g.rot+(i+1)*QUARTER-.045;
+    ctx.beginPath();ctx.arc(cx,sy,r,a0,a1);
+    ctx.strokeStyle=COLORS[i];ctx.lineWidth=14*U;ctx.lineCap='butt';ctx.shadowColor=COLORS[i];ctx.shadowBlur=reduced.matches?0:17*U;ctx.stroke();ctx.shadowBlur=0;
+    ctx.beginPath();ctx.arc(cx,sy,r-2.7*U,a0+.015,a1-.015);ctx.strokeStyle='rgba(255,255,255,.25)';ctx.lineWidth=1.5*U;ctx.stroke();
+  }
+  if(!g.passed){
+    const match=segment(g,Math.PI/2);
+    const x=cx,y=sy+r;
+    ctx.beginPath();ctx.arc(x,y,19*U,0,TAU);ctx.strokeStyle=COLORS[match];ctx.globalAlpha=.27;ctx.lineWidth=1.25*U;ctx.stroke();ctx.globalAlpha=faded;
+    ctx.save();ctx.translate(x,y+18*U);ctx.beginPath();ctx.moveTo(0,-5*U);ctx.lineTo(-5*U,1*U);ctx.lineTo(5*U,1*U);ctx.closePath();ctx.fillStyle=COLORS[match];ctx.fill();ctx.restore();
+  }
+  ctx.fillStyle='rgba(245,243,255,.14)';ctx.beginPath();ctx.arc(cx,sy,2.5*U,0,TAU);ctx.fill();
   ctx.restore();
-
-  // HUD
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#fff';
-  ctx.font = `800 ${28 * S}px -apple-system, sans-serif`;
-  ctx.fillText(String(score), 18, 52);
-  ctx.font = `600 ${16 * S}px -apple-system, sans-serif`;
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fillText('BEST ' + best, 18, 76);
-
-  // current color indicator
-  ctx.fillStyle = COLORS[ball.colorIdx];
-  ctx.beginPath(); ctx.arc(W - 70, 40, 12 * S, 0, 6.29); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.font = `600 ${12 * S}px -apple-system, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('NEXT', W - 70, 62);
-
-  // mute
-  ctx.textAlign = 'left';
-  ctx.fillStyle = muted ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)';
-  ctx.font = '20px sans-serif';
-  ctx.fillText(muted ? '🔇' : '🔊', W - 44, 36);
-
-  // screens
-  if (state === 'ready') {
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    fitFont('CHROMA FALL', 52, W * 0.92);
-    ctx.fillText('CHROMA FALL', W / 2, H * 0.38);
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    fitFont('Tap to bounce through the rings.', 20, W * 0.9, 600);
-    ctx.fillText('Tap to bounce through the rings.', W / 2, H * 0.38 + 44);
-    ctx.fillStyle = '#ffe066';
-    ctx.font = '600 20px -apple-system, sans-serif';
-    ctx.fillText('Tap to start', W / 2, H * 0.38 + 84);
-  }
-  if (state === 'dead') {
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    fitFont('GAME OVER', 52, W * 0.92);
-    ctx.fillText('GAME OVER', W / 2, H * 0.38);
-    ctx.font = '600 20px -apple-system, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fillText('Score ' + score + '   Best ' + best, W / 2, H * 0.38 + 46);
-    ctx.fillStyle = '#8ef7ff';
-    ctx.fillText('Tap to retry', W / 2, H * 0.38 + 88);
-  }
 }
-
-function frame(ts) {
-  const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0.016);
-  lastTs = ts;
-  update(dt);
-  render();
-  requestAnimationFrame(frame);
+function drawOrb(g){
+  if(g.orbDone)return;
+  const sy=g.orbY+camera;
+  if(sy< -40||sy>H+40)return;
+  const cx=W/2,pulse=reduced.matches?0:Math.sin(ambient*4+g.index)*2.5*U;
+  ctx.save();ctx.translate(cx,sy);ctx.rotate(Math.PI/4);
+  ctx.strokeStyle=COLORS[g.color];ctx.globalAlpha=.35;ctx.lineWidth=1.4*U;ctx.strokeRect(-15*U-pulse/2,-15*U-pulse/2,30*U+pulse,30*U+pulse);
+  ctx.shadowColor=COLORS[g.color];ctx.shadowBlur=24*U;ctx.fillStyle=COLORS[g.color];ctx.fillRect(-8*U,-8*U,16*U,16*U);ctx.shadowBlur=0;
+  ctx.fillStyle='rgba(255,255,255,.65)';ctx.fillRect(-5*U,-5*U,4.5*U,4.5*U);ctx.restore();
 }
-reset();
-requestAnimationFrame(frame);
-
-// debug hook
-window.__cf = {
-  get state() { return state; },
-  get score() { return score; },
-  get ball() { return { y: ball.y, vy: ball.vy, color: ball.colorIdx }; },
-  tap() { onDown(W / 2, H / 2); },
-  gates() { return gates.map(g => ({ y: g.y, passed: g.passed })); }
-};
+function drawBall(){
+  const cx=ball.x,cy=ball.y+camera,r=ball.r;
+  ctx.save();
+  for(let i=0;i<trail.length;i++){
+    const t=trail[i],a=(i+1)/trail.length;
+    const sy=t.y+camera;if(sy< -50||sy>H+50)continue;
+    ctx.globalAlpha=a*.22;ctx.fillStyle=t.color;
+    ctx.beginPath();ctx.arc(cx,sy,r*(.3+a*.5),0,TAU);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  const glow=ctx.createRadialGradient(cx,cy,0,cx,cy,r*(2.6+ball.glow*.5));
+  glow.addColorStop(0,COLORS[ball.color]+'66');glow.addColorStop(.4,COLORS[ball.color]+'29');glow.addColorStop(1,COLORS[ball.color]+'00');
+  ctx.fillStyle=glow;ctx.beginPath();ctx.arc(cx,cy,r*(2.6+ball.glow*.5),0,TAU);ctx.fill();
+  ctx.shadowColor=COLORS[ball.color];ctx.shadowBlur=20*U;
+  const fill=ctx.createRadialGradient(cx-r*.32,cy-r*.48,r*.1,cx,cy,r*1.3);
+  fill.addColorStop(0,'#ffffff');fill.addColorStop(.22,COLORS[ball.color]);fill.addColorStop(.9,COLORS[ball.color]);fill.addColorStop(1,'#352438');
+  ctx.fillStyle=fill;ctx.beginPath();ctx.arc(cx,cy,r,0,TAU);ctx.fill();ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,.45)';ctx.lineWidth=1.1*U;ctx.stroke();
+  ctx.restore();
+}
+function drawEffects(){
+  for(const p of particles){const sy=p.y+camera;if(sy< -50||sy>H+50)continue;ctx.globalAlpha=clamp(p.life/p.all,0,1);ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,sy,p.size,0,TAU);ctx.fill();}
+  ctx.globalAlpha=1;
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`800 ${13*U}px ui-sans-serif,system-ui,sans-serif`;
+  for(const n of notes){ctx.globalAlpha=clamp(n.life/.45,0,1);ctx.fillStyle=n.color;ctx.fillText(n.label,n.x,n.y+camera);}
+  ctx.globalAlpha=1;
+  if(flash>0){ctx.fillStyle=`rgba(255,255,255,${Math.min(.09,flash*.24)})`;ctx.fillRect(0,0,W,H);}
+}
+function render(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  background();
+  ctx.save();
+  if(shake>.2&&!reduced.matches)ctx.translate(rand(-shake,shake),rand(-shake,shake));
+  for(const g of gates)drawGate(g);
+  for(const g of gates)drawOrb(g);
+  drawBall();drawEffects();ctx.restore();
+}
+function frame(ts){
+  const dt=prevTs?Math.min(.04,(ts-prevTs)/1000):.016;prevTs=ts;ambient+=dt;
+  if(mode==='playing'){acc=Math.min(.06,acc+dt);const fixed=1/120;let loops=0;while(acc>=fixed&&loops++<8){step(fixed);acc-=fixed;if(mode!=='playing')break;}}
+  animateEffects(dt);render();requestAnimationFrame(frame);
+}
+reset();setMode('ready');requestAnimationFrame(frame);
+window.__cf={get state(){return mode},get score(){return score},get best(){return best},
+  get ball(){return {...ball,screenY:ball.y+camera}},get camera(){return camera},
+  gates(){return gates.map(g=>({index:g.index,y:g.y,r:g.r,color:g.color,entered:g.entered,passed:g.passed,orbDone:g.orbDone,lowerColor:segment(g,Math.PI/2)}))},
+  tap:input,pause,reset:()=>{reset();setMode('ready')}};
+})();
 </script>
 </body>
 </html>
