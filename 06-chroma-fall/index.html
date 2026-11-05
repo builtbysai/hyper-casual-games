@@ -77,12 +77,12 @@ h2 { font-weight:850; font-size:clamp(44px,12vw,70px); letter-spacing:-.077em; l
   </div>
 </header>
 <div id="progress" aria-hidden="true"><span class="pip active"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span></div>
-<div id="playHint"><strong>TAP TO RISE</strong><small>Only your color passes the lower arc</small></div>
+<div id="playHint"><strong>TAP TO RISE</strong><small>Match the color at both sides of each ring</small></div>
 <section id="screen" aria-live="polite"><div class="panel">
   <div class="emblem" aria-hidden="true"></div>
   <div class="eyebrow" id="eyebrow">A ONE-TOUCH COLOR RUN</div>
   <h1 id="headline">CHROMA<br><span>FALL</span></h1>
-  <p id="lead" class="lead">Rise through rotating rings. Match the color beneath you, collect a new color, keep climbing.</p>
+  <p id="lead" class="lead">Rise through rotating rings. Match your color on every contact, collect a new color, keep climbing.</p>
   <div id="result" hidden><div class="stat"><b id="finalScore">0</b><span>SCORE</span></div><div class="stat"><b id="finalBest">0</b><span>BEST</span></div></div>
   <div id="record" hidden>NEW PERSONAL BEST</div>
   <button class="primary" id="start" type="button">START PLAYING</button>
@@ -103,7 +103,7 @@ const caption=document.getElementById('caption'), soundButton=document.getElemen
 const progressPips=[...document.querySelectorAll('.pip')];
 const COLORS=['#ff547f','#16e1df','#fbce63','#a18aff'];
 const NAMES=['PINK','CYAN','GOLD','VIOLET'];
-const TAU=Math.PI*2, QUARTER=Math.PI/2;
+const TAU=Math.PI*2, ARC=TAU/8;
 const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
 let W=0,H=0,DPR=1,U=1,run=0,mode='ready',score=0,best=0,muted=false;
 let ball, gates=[],particles=[],notes=[],trail=[],camera=0,ambient=0,shake=0,flash=0;
@@ -145,8 +145,9 @@ function vibration(ms){if(!reduced.matches){try{navigator.vibrate?.(ms)}catch{}}
 function newGate(y,index){
   const first=index===0;
   const color=first?0:((gates.length?gates[gates.length-1].color:0)+1+Math.floor(Math.random()*3))%4;
-  const speed=first?.28:(.47+Math.min(26,index)*.017+rand(0,.27))*(index%2?-1:1);
-  return {y,r:rand(67,74)*U,rot:first?Math.PI/4:rand(0,TAU),speed,color,entered:false,passed:false,orbY:y+320*U*.68,orbDone:first,index};
+  const speed=first?.24:index===1?-.30:index===2?.36:(.47+Math.min(26,index)*.017+rand(0,.27))*(index%2?-1:1);
+  // Eight sectors repeat the four colors on opposite sides. Entry and exit can now both match.
+  return {y,r:rand(67,74)*U,rot:first?Math.PI/2-ARC/2:rand(0,TAU),speed,color,entered:false,passed:false,orbY:y+320*U*.60,orbDone:first,index};
 }
 function reset(){
   run++;score=0;runStartBest=best;created=0;camera=0;shake=0;flash=0;particles=[];notes=[];trail=[];lastTap=-10;
@@ -161,7 +162,7 @@ function syncHud(){scoreEl.textContent=score;bestEl.textContent=best;app.style.s
 function setMode(value){mode=value;app.className=value+(muted?' muted':'');screen.classList.toggle('hidden',value==='playing');
   if(value==='ready'){
     eyebrow.textContent='A ONE-TOUCH COLOR RUN';headline.innerHTML='CHROMA<br><span>FALL</span>';
-    lead.textContent='Rise through rotating rings. Match the color beneath you, collect a new color, keep climbing.';
+    lead.textContent='Rise through rotating rings. Match your color on every contact, collect a new color, keep climbing.';
     result.hidden=true;record.hidden=true;startButton.textContent='START PLAYING';caption.textContent='Tap anywhere or press Space to lift.';
   }else if(value==='dead'){
     eyebrow.textContent='RUN COMPLETE';headline.textContent='COLOR LOST';lead.textContent=firstDeathReason;
@@ -197,7 +198,14 @@ soundButton.setAttribute('aria-label',muted?'Unmute sound':'Mute sound');
 window.addEventListener('keydown',e=>{if(['Space','ArrowUp','Enter'].includes(e.code)){if(e.repeat)return;if(e.target?.tagName==='BUTTON'&&e.code==='Enter')return;e.preventDefault();input();}else if(e.code==='KeyP'||e.code==='Escape'){e.preventDefault();pause();}else if(e.code==='KeyM'){soundButton.click();} });
 document.addEventListener('visibilitychange',()=>{if(document.hidden){if(mode==='playing')pause();audio?.suspend();}prevTs=0;});
 window.addEventListener('blur',()=>{if(mode==='playing')pause();});
-function segment(g,angle){const theta=((angle-g.rot)%TAU+TAU)%TAU;return Math.floor(theta/QUARTER)%4;}
+function segment(g,angle){
+  const theta=((angle-g.rot)%TAU+TAU)%TAU;
+  return Math.floor(theta/ARC)%4;
+}
+// Swept overlap catches a contact even when the ball traverses the edge between frames.
+function crossesBand(from,to,center,halfWidth){
+  return Math.min(from,to)<=center+halfWidth && Math.max(from,to)>=center-halfWidth;
+}
 function spawnBurst(x,y,color,count=14,power=1){
   if(reduced.matches)return;
   for(let i=0;i<count&&particles.length<120;i++){
@@ -231,25 +239,39 @@ function step(dt){
     if(oldY>g.orbY+12*U&&ball.y<=g.orbY+12*U){
       g.orbDone=true;ball.color=g.color;ball.glow=1.8;
       // The first few pickups give a generous matching window, then timing takes over.
-      if(g.index<3)g.rot=(Math.PI/2-(g.color+.5)*QUARTER+TAU)%TAU;
+      if(g.index<3)g.rot=(Math.PI/2-(g.color+.5)*ARC+TAU)%TAU;
       spawnBurst(ball.x,g.orbY,COLORS[ball.color],25,.75);
       addNote(NAMES[ball.color],ball.x,g.orbY-28*U,COLORS[ball.color]);
       tone(540,.12,.09,'sine');tone(810,.14,.055,'sine',.055);syncHud();
     }
   }
+  // A ring is a real obstacle on BOTH sides, in BOTH directions, even after scoring.
+  // Test the visible annulus, not just one imaginary horizontal checkpoint.
+  const halfWidth=7.5*U+ball.r;
   for(const g of gates){
-    if(g.passed)continue;
-    const contact=g.y+g.r+7.5*U+ball.r;
-    if(!g.entered&&ball.vy<0&&oldY>contact&&ball.y<=contact){
+    const lower=g.y+g.r, upper=g.y-g.r;
+    if(crossesBand(oldY,ball.y,lower,halfWidth)){
       const active=segment(g,Math.PI/2);
       if(active!==ball.color){
-        die('The lower arc was '+NAMES[active].toLowerCase()+'. Wait for your color before crossing.',COLORS[active]);
+        die('The lower arc was '+NAMES[active].toLowerCase()+'. Match the color you touch.',COLORS[active]);
         break;
       }
-      g.entered=true;spawnBurst(ball.x,contact,COLORS[ball.color],9,.55);tone(620,.07,.05,'triangle');
+      if(ball.y<oldY&&!g.entered){
+        g.entered=true;
+        spawnBurst(ball.x,lower,COLORS[ball.color],9,.55);
+        tone(620,.07,.05,'triangle');
+      }
     }
-    const exit=g.y-g.r-7.5*U-ball.r;
-    if(g.entered&&!g.passed&&oldY>=exit&&ball.y<exit){
+    if(crossesBand(oldY,ball.y,upper,halfWidth)){
+      const active=segment(g,Math.PI*1.5);
+      if(active!==ball.color){
+        die('The upper arc was '+NAMES[active].toLowerCase()+'. Match the color you touch.',COLORS[active]);
+        break;
+      }
+    }
+    // Award points only after clearing the outer TOP edge on the way up.
+    const clearedTop=upper-halfWidth;
+    if(g.entered&&!g.passed&&ball.y<oldY&&oldY>=clearedTop&&ball.y<clearedTop){
       g.passed=true;score++;
       if(score>best){best=score;storagePut('chroma_best',best);}
       syncHud();flash=.12;ball.glow=1.2;
@@ -291,20 +313,23 @@ function background(){
 function drawGate(g){
   const sy=g.y+camera,r=g.r;
   if(sy+r<-95||sy-r>H+95)return;
-  const cx=W/2, faded=g.passed?clamp(1-(score-g.index)*.25,.15,.65):1;
+  const cx=W/2, faded=g.passed?(.3+.7*clamp((r+180*U-Math.abs(g.y-ball.y))/(110*U),0,1)):1;
   ctx.save();ctx.globalAlpha=faded;
   ctx.beginPath();ctx.arc(cx,sy,r,0,TAU);ctx.strokeStyle='rgba(182,170,219,.095)';ctx.lineWidth=19*U;ctx.stroke();
-  for(let i=0;i<4;i++){
-    const a0=g.rot+i*QUARTER+.045,a1=g.rot+(i+1)*QUARTER-.045;
+  for(let i=0;i<8;i++){
+    const a0=g.rot+i*ARC+.026,a1=g.rot+(i+1)*ARC-.026;
     ctx.beginPath();ctx.arc(cx,sy,r,a0,a1);
-    ctx.strokeStyle=COLORS[i];ctx.lineWidth=14*U;ctx.lineCap='butt';ctx.shadowColor=COLORS[i];ctx.shadowBlur=reduced.matches?0:17*U;ctx.stroke();ctx.shadowBlur=0;
+    ctx.strokeStyle=COLORS[i%4];ctx.lineWidth=14*U;ctx.lineCap='butt';ctx.shadowColor=COLORS[i%4];ctx.shadowBlur=reduced.matches?0:17*U;ctx.stroke();ctx.shadowBlur=0;
     ctx.beginPath();ctx.arc(cx,sy,r-2.7*U,a0+.015,a1-.015);ctx.strokeStyle='rgba(255,255,255,.25)';ctx.lineWidth=1.5*U;ctx.stroke();
   }
-  if(!g.passed){
-    const match=segment(g,Math.PI/2);
-    const x=cx,y=sy+r;
-    ctx.beginPath();ctx.arc(x,y,19*U,0,TAU);ctx.strokeStyle=COLORS[match];ctx.globalAlpha=.27;ctx.lineWidth=1.25*U;ctx.stroke();ctx.globalAlpha=faded;
-    ctx.save();ctx.translate(x,y+18*U);ctx.beginPath();ctx.moveTo(0,-5*U);ctx.lineTo(-5*U,1*U);ctx.lineTo(5*U,1*U);ctx.closePath();ctx.fillStyle=COLORS[match];ctx.fill();ctx.restore();
+  // Both entry points are dangerous; mark each one while the ring can be reached.
+  if(!g.passed||Math.abs(ball.y-g.y)<r+100*U){
+    for(const side of [-1,1]){
+      const match=segment(g,side===1?Math.PI/2:Math.PI*1.5);
+      const x=cx,y=sy+side*r;
+      ctx.beginPath();ctx.arc(x,y,19*U,0,TAU);ctx.strokeStyle=COLORS[match];ctx.globalAlpha=faded*.27;ctx.lineWidth=1.25*U;ctx.stroke();ctx.globalAlpha=faded;
+      ctx.save();ctx.translate(x,y+side*18*U);ctx.beginPath();ctx.moveTo(0,-side*5*U);ctx.lineTo(-5*U,side*1*U);ctx.lineTo(5*U,side*1*U);ctx.closePath();ctx.fillStyle=COLORS[match];ctx.fill();ctx.restore();
+    }
   }
   ctx.fillStyle='rgba(245,243,255,.14)';ctx.beginPath();ctx.arc(cx,sy,2.5*U,0,TAU);ctx.fill();
   ctx.restore();
@@ -364,7 +389,7 @@ function frame(ts){
 reset();setMode('ready');requestAnimationFrame(frame);
 window.__cf={get state(){return mode},get score(){return score},get best(){return best},
   get ball(){return {...ball,screenY:ball.y+camera}},get camera(){return camera},
-  gates(){return gates.map(g=>({index:g.index,y:g.y,r:g.r,color:g.color,entered:g.entered,passed:g.passed,orbDone:g.orbDone,lowerColor:segment(g,Math.PI/2)}))},
+  gates(){return gates.map(g=>({index:g.index,y:g.y,r:g.r,color:g.color,entered:g.entered,passed:g.passed,orbDone:g.orbDone,lowerColor:segment(g,Math.PI/2),upperColor:segment(g,Math.PI*1.5)}))},
   tap:input,pause,reset:()=>{reset();setMode('ready')}};
 })();
 </script>
