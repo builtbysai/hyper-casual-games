@@ -13,17 +13,47 @@
   #mute { position:fixed; top:calc(env(safe-area-inset-top,0px) + 10px); right:12px; z-index:10;
     width:40px; height:40px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
     background:rgba(10,12,26,.55); color:#cfd6ff; font-size:17px; cursor:pointer; backdrop-filter:blur(6px); }
+  /* mode options (menu + game-over, human play) */
+  #opts { position:fixed; left:50%; transform:translateX(-50%); z-index:15; width:min(92vw,330px);
+    display:none; flex-direction:column; gap:6px; top:0; }
+  #opts .row { display:flex; align-items:center; justify-content:space-between; height:38px; }
+  #opts .lab { font-size:11px; font-weight:700; letter-spacing:.14em; color:rgba(200,215,255,.5); }
+  #opts .seg { display:flex; border:1px solid rgba(150,170,255,.28); border-radius:19px; overflow:hidden; }
+  #opts .seg button { width:84px; height:36px; border:0; background:transparent; color:rgba(207,214,255,.55);
+    font:700 12px system-ui,sans-serif; letter-spacing:.1em; cursor:pointer; }
+  #opts .seg button.on { background:rgba(34,230,255,.14); color:#e9fdff; text-shadow:0 0 10px rgba(34,230,255,.9);
+    box-shadow:inset 0 0 0 1px rgba(34,230,255,.55); }
+  #opts .seg button[data-v="1"].on.mg { background:rgba(255,79,216,.14); text-shadow:0 0 10px rgba(255,79,216,.9);
+    box-shadow:inset 0 0 0 1px rgba(255,79,216,.55); }
+  /* AI watch controls */
+  #ai-ctl { position:fixed; left:0; right:0; bottom:calc(14px + env(safe-area-inset-bottom,0px)); z-index:20;
+    display:none; justify-content:center; gap:10px; pointer-events:none; }
+  #ai-ctl button { pointer-events:auto; width:44px; height:44px; border-radius:50%;
+    border:1px solid rgba(255,255,255,.18); background:rgba(10,12,26,.45); color:#cfd6ff;
+    cursor:pointer; backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <button id="mute" aria-label="mute">♪</button>
+<div id="opts">
+  <div class="row"><span class="lab">PLAYER</span><div class="seg" data-k="ai"><button data-v="0">HUMAN</button><button data-v="1">AI</button></div></div>
+  <div class="row"><span class="lab">WRAP</span><div class="seg" data-k="wrap"><button data-v="0">OFF</button><button data-v="1">ON</button></div></div>
+  <div class="row"><span class="lab">SNAKES</span><div class="seg" data-k="two"><button data-v="0">ONE</button><button data-v="1" class="mg">TWO</button></div></div>
+</div>
+<div id="ai-ctl">
+  <button id="ai-pause" aria-label="pause"><svg viewBox="0 0 24 24" width="18" height="18"><rect x="6" y="5" width="4" height="14" fill="currentColor"/><rect x="14" y="5" width="4" height="14" fill="currentColor"/></svg></button>
+  <button id="ai-restart" aria-label="restart"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 3v5h-5"/></svg></button>
+  <button id="ai-menu" aria-label="menu"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
+</div>
 <script>
 "use strict";
 /* Neon Serpent — Snake reimagined. You start as one serpent. Eat the first
    orb and it SPLITS into two: cyan and magenta. One swipe steers both —
    magenta mirrors you left-for-right. Food spawns in mirrored pairs; eating
-   grows both snakes. Keep both alive. Death is always your fault. */
+   grows both snakes. Keep both alive. Death is always your fault.
+   Modes (cfg): ai = human steers / the AI plays; wrap = flat walls-kill board /
+   torus board; two = split into a mirrored pair / one snake, never splits. */
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 let W=0, H=0, DPR=1;
 function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
@@ -74,8 +104,16 @@ function layout(){ GW=Math.min(W,480); GX=(W-GW)/2;
   FY=104+Math.max(0,(H-104-FH-56)/2); }
 
 // ---------- state ----------
-const BEST_KEY='neonserpent_best';
-let best=parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0;
+const CFG_KEY='neonserpent_cfg';
+let cfg={ ai:false, wrap:false, two:true };   // default = the original game
+try{ const c=JSON.parse(localStorage.getItem(CFG_KEY)||'null');
+  if(c){ cfg.ai=!!c.ai; cfg.wrap=!!c.wrap; cfg.two=c.two!==false; } }catch(e){}
+function bestKey(){ // the original mode keeps the original key, every other mode has its own best
+  if(!cfg.ai && !cfg.wrap && cfg.two) return 'neonserpent_best';
+  return 'neonserpent_best_'+(cfg.ai?'ai':'me')+'_'+(cfg.wrap?'wrap':'flat')+'_'+(cfg.two?'2':'1'); }
+function loadBest(){ try{ return parseInt(localStorage.getItem(bestKey())||'0',10)||0; }catch(e){ return 0; } }
+let best=loadBest();
+let uiShow='', uiTop=0, deathCause='';   // read by the options script: which option panel to show, and where
 let mode='menu'; // menu | play | over
 let score=0, combo=0, comboT=0, shakeT=0, flashT=0, splitPause=0, elapsed=0;
 let snakes=[], foods=[], hazards=[], particles=[], floaters=[], stars=[];
@@ -94,6 +132,8 @@ function lerp(a,b,t){ return a+(b-a)*t; }
 function cellCX(cx){ return GX+cx*CELL+CELL/2; }
 function cellCY(cy){ return FY+cy*CELL+CELL/2; }
 function inBounds(x,y){ return x>=0 && x<COLS && y>=0 && y<ROWS; }
+function tdist(ax,ay,bx,by){ let dx=Math.abs(ax-bx), dy=Math.abs(ay-by);
+  if(cfg.wrap){ dx=Math.min(dx,COLS-dx); dy=Math.min(dy,ROWS-dy); } return dx+dy; }
 function occupied(x,y){
   for(const s of snakes) for(const seg of s.body) if(seg.x===x&&seg.y===y) return true;
   for(const f of foods) if(f.x===x&&f.y===y) return true;
@@ -118,32 +158,85 @@ function reset(){
   foods=[]; hazards=[]; particles=[]; floaters=[];
   score=0; combo=0; comboT=0; shakeT=0; flashT=0; splitPause=0; elapsed=0;
   tickMs=speedMs(); tickAcc=0; growPending=0; hazardT=0; dirQueue=[]; splitDone=false;
-  spawnFoodPair();
+  spawnFood();
 }
-function startGame(){ reset(); mode='play'; }
+function startGame(){ reset(); mode='play'; if(typeof aiOnStart==='function' && cfg.ai) aiOnStart(); }
+function toMenu(){ mode='menu'; reset(); }
 
-function spawnFoodPair(){
-  // mirrored pair, never on the center column, never near either head
-  for(let tries=0; tries<60; tries++){
-    const x=1+Math.floor(Math.random()*5); // 1..5, mirror 11..7
-    const y=1+Math.floor(Math.random()*(ROWS-2));
-    const mx=COLS-1-x;
-    if(occupied(x,y)||occupied(mx,y)) continue;
-    let near=false;
-    for(const s of snakes){ const h=s.body[0];
-      if(Math.abs(h.x-x)+Math.abs(h.y-y)<3 || Math.abs(h.x-mx)+Math.abs(h.y-y)<3){ near=true; break; } }
-    if(near) continue;
-    foods=[ {x:x,y:y,ph:Math.random()*6.28}, {x:mx,y:y,ph:Math.random()*6.28} ];
-    return;
+function spawnFood(){ if(cfg.two) spawnFoodPair(); else spawnFoodOne(); }
+function spawnFoodOne(){
+  // single fruit: any empty cell not right next to the head; relax if the board is crowded
+  for(const near of [3,0]){
+    const cand=[];
+    for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+      if(occupied(x,y)) continue;
+      let ok=true; for(const s of snakes){ const h=s.body[0]; if(tdist(h.x,h.y,x,y)<near){ ok=false; break; } }
+      if(ok) cand.push({x:x,y:y});
+    }
+    if(cand.length){ const c=cand[Math.floor(Math.random()*cand.length)];
+      foods=[ {x:c.x,y:c.y,ph:Math.random()*6.28} ]; return; }
   }
-  // fallback: any two empty cells
+  foods=[]; die('board full');
+}
+function spawnFoodPair(){
+  // flat board, original rule first (random mirrored pair, x 1..5 / mirror 11..7, never near a head)
+  if(!cfg.wrap){
+    for(let tries=0; tries<60; tries++){
+      const x=1+Math.floor(Math.random()*5), y=1+Math.floor(Math.random()*(ROWS-2)), mx=COLS-1-x;
+      if(occupied(x,y)||occupied(mx,y)) continue;
+      let near=false;
+      for(const s of snakes){ const h=s.body[0];
+        if(Math.abs(h.x-x)+Math.abs(h.y-y)<3 || Math.abs(h.x-mx)+Math.abs(h.y-y)<3){ near=true; break; } }
+      if(near) continue;
+      foods=[ {x:x,y:y,ph:Math.random()*6.28}, {x:mx,y:y,ph:Math.random()*6.28} ];
+      return;
+    }
+  }
+  // Enumerate EVERY valid mirrored pair and pick one at random, relaxing the rules
+  // tier by tier, so a fruit always spawns while any empty cell exists.
+  const tiers = cfg.wrap
+    ? [ {x0:0,x1:5,y0:0,y1:ROWS-1,near:3}, {x0:0,x1:5,y0:0,y1:ROWS-1,near:0} ]
+    : [ {x0:1,x1:5,y0:1,y1:ROWS-2,near:3}, {x0:0,x1:5,y0:0,y1:ROWS-1,near:3}, {x0:0,x1:5,y0:0,y1:ROWS-1,near:0} ];
+  for(const T of tiers){
+    const cand=[];
+    for(let y=T.y0;y<=T.y1;y++) for(let x=T.x0;x<=T.x1;x++){
+      const mx=COLS-1-x;
+      if(x===mx || occupied(x,y)||occupied(mx,y)) continue;
+      let near=false;
+      for(const s of snakes){ const h=s.body[0];
+        if(tdist(h.x,h.y,x,y)<T.near || tdist(h.x,h.y,mx,y)<T.near){ near=true; break; } }
+      if(!near) cand.push({x:x,y:y});
+    }
+    if(cand.length){
+      const c=cand[Math.floor(Math.random()*cand.length)], mx=COLS-1-c.x;
+      foods=[ {x:c.x,y:c.y,ph:Math.random()*6.28}, {x:mx,y:c.y,ph:Math.random()*6.28} ];
+      return;
+    }
+  }
+  // No mirrored pair exists: relax the rule and use any empty cells (never fruitless).
   const empty=[];
   for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(!occupied(x,y)) empty.push({x:x,y:y});
-  if(empty.length>=2){ foods=[empty[0], empty[empty.length-1]]; }
-  else foods=[];
+  if(empty.length>=2){
+    const i=Math.floor(Math.random()*empty.length); let j=Math.floor(Math.random()*(empty.length-1)); if(j>=i) j++;
+    foods=[ {x:empty[i].x,y:empty[i].y,ph:Math.random()*6.28}, {x:empty[j].x,y:empty[j].y,ph:Math.random()*6.28} ];
+  } else if(empty.length===1){
+    foods=[ {x:empty[0].x,y:empty[0].y,ph:Math.random()*6.28} ];
+  } else { foods=[]; die('board full'); }
 }
 function spawnHazardPair(){
   if(score<10 || hazards.length>0) return;
+  if(!cfg.two){   // single snake: one hazard, anywhere not right next to the head
+    for(let tries=0; tries<60; tries++){
+      const x=Math.floor(Math.random()*COLS), y=Math.floor(Math.random()*ROWS);
+      if(occupied(x,y)) continue;
+      const h=snakes[0].body[0];
+      if(tdist(h.x,h.y,x,y)<4) continue;
+      hazards=[ {x:x,y:y,life:8} ];
+      playHazardWarn();
+      return;
+    }
+    return;
+  }
   for(let tries=0; tries<40; tries++){
     const x=1+Math.floor(Math.random()*5);
     const y=1+Math.floor(Math.random()*(ROWS-2));
@@ -151,7 +244,7 @@ function spawnHazardPair(){
     if(occupied(x,y)||occupied(mx,y)) continue;
     let near=false;
     for(const s of snakes){ const h=s.body[0];
-      if(Math.abs(h.x-x)+Math.abs(h.y-y)<4 || Math.abs(h.x-mx)+Math.abs(h.y-y)<4){ near=true; break; } }
+      if(tdist(h.x,h.y,x,y)<4 || tdist(h.x,h.y,mx,y)<4){ near=true; break; } }
     if(near) continue;
     hazards=[ {x:x,y:y,life:8}, {x:mx,y:y,life:8} ];
     playHazardWarn();
@@ -173,7 +266,7 @@ function doSplit(){
   const cyan=makeSnake(3,6,DIRS.right,'#22e6ff','#22e6ff',len);
   const mag=makeSnake(9,12,DIRS.left,'#ff4fd8','#ff4fd8',len);
   snakes=[cyan,mag];
-  foods=[]; spawnFoodPair();
+  foods=[]; spawnFood();
   flashT=0.3; shakeT=0.2; splitPause=0.35;
   playSplit();
   if(navigator.vibrate) try{ navigator.vibrate([30,40,30]); }catch(e){}
@@ -185,12 +278,12 @@ function doSplit(){
 
 function die(cause){
   if(mode!=='play') return;
-  mode='over'; playDeath();
+  mode='over'; deathCause=cause; playDeath();
   if(navigator.vibrate) try{ navigator.vibrate([60,40,60]); }catch(e){}
   shakeT=0.45; flashT=0.25;
   for(const s of snakes){ const h=s.body[0];
     burst(cellCX(h.x),cellCY(h.y), s.color==='#22e6ff'?'34,230,255':'255,79,216', 22, GW*0.8); }
-  if(score>best){ best=score; localStorage.setItem(BEST_KEY,String(best)); }
+  if(score>best){ best=score; try{ localStorage.setItem(bestKey(),String(best)); }catch(e){} }
 }
 
 function queueDir(name){
@@ -215,10 +308,14 @@ function step(){
   const newHeads=[];
   for(const s of snakes){
     s.prev=s.body.map(seg=>({x:seg.x,y:seg.y}));
-    newHeads.push({x:s.body[0].x+s.dir.x, y:s.body[0].y+s.dir.y});
+    let nx=s.body[0].x+s.dir.x, ny=s.body[0].y+s.dir.y;
+    // wrap on: torus. Both heads move by (dx,dy) / (-dx,dy) modulo the board, so the
+    // mirror link M(c)=(12-x,(y+6) mod 19) holds by construction.
+    if(cfg.wrap){ nx=(nx+COLS)%COLS; ny=(ny+ROWS)%ROWS; }
+    newHeads.push({x:nx, y:ny});
   }
-  // wall death
-  for(let i=0;i<snakes.length;i++){
+  // wall death (wrap off only)
+  if(!cfg.wrap) for(let i=0;i<snakes.length;i++){
     const nh=newHeads[i];
     if(!inBounds(nh.x,nh.y)){ die('wall'); return; }
   }
@@ -264,8 +361,8 @@ function step(){
     if(navigator.vibrate) try{ navigator.vibrate(8); }catch(e){}
     const h=snakes[0].body[0];
     floaters.push({text:'+1', x:cellCX(h.x), y:cellCY(h.y)-CELL, life:0.8, c:'#ffd166'});
-    if(!splitDone){ doSplit(); return; }
-    spawnFoodPair();
+    if(cfg.two && !splitDone){ doSplit(); return; }
+    spawnFood();
     if(Math.random()<0.4) spawnHazardPair();
   }
 }
@@ -273,12 +370,12 @@ function step(){
 function update(dt){
   elapsed+=dt;
   if(splitPause>0){ splitPause-=dt; }
-  else if(mode==='play'){
+  else if(mode==='play' && !window.__nsPaused){
     tickAcc+=dt*1000;
     while(tickAcc>=tickMs){ tickAcc-=tickMs; step(); if(mode!=='play') break; }
   }
   if(comboT>0){ comboT-=dt; if(comboT<=0) combo=0; }
-  if(hazards.length){
+  if(hazards.length && !(cfg.ai && window.__nsPaused)){
     for(const h of hazards) h.life-=dt;
     hazards=hazards.filter(h=>h.life>0);
   }
@@ -295,6 +392,7 @@ let anchor=null;
 function press(x,y){
   audio(); if(AC && AC.state==='suspended' && !muted) AC.resume();
   if(mode!=='play'){ startGame(); return; }
+  if(cfg.ai) return;   // AI plays; the player watches
   anchor={x:x,y:y};
 }
 cv.addEventListener('pointerdown', e=>{ e.preventDefault(); press(e.clientX,e.clientY); });
@@ -313,11 +411,12 @@ addEventListener('keydown', e=>{
   if(k===' '||k==='enter'){ e.preventDefault();
     if(mode!=='play'){ audio(); startGame(); } return; }
   const map={arrowup:'up',w:'up',arrowdown:'down',s:'down',arrowleft:'left',a:'left',arrowright:'right',d:'right'};
-  if(map[k]){ e.preventDefault(); if(mode==='play') queueDir(map[k]); }
+  if(map[k]){ e.preventDefault(); if(mode==='play' && !cfg.ai) queueDir(map[k]); }
 });
 
 // ---------- render ----------
 function draw(){
+  uiShow='';
   ctx.save();
   if(shakeT>0){ const s=shakeT*22; ctx.translate((Math.random()-0.5)*s,(Math.random()-0.5)*s); }
   ctx.fillStyle='#0a0618'; ctx.fillRect(-30,-30,W+60,H+60);
@@ -333,7 +432,9 @@ function draw(){
   for(let j=1;j<ROWS;j++){ ctx.moveTo(GX,FY+j*CELL); ctx.lineTo(GX+GW,FY+j*CELL); }
   ctx.stroke();
   ctx.strokeStyle='rgba(150,170,255,0.35)'; ctx.lineWidth=2;
+  if(cfg.wrap) ctx.setLineDash([7,6]);   // dashed frame = the edges are open
   ctx.strokeRect(GX-1,FY-1,GW+2,FH+2);
+  ctx.setLineDash([]);
   // corner ticks
   ctx.strokeStyle='rgba(150,170,255,0.6)'; ctx.lineWidth=2;
   const L=14;
@@ -367,16 +468,41 @@ function tickProgress(){
   if(splitPause>0) return 1;
   return Math.min(1, tickAcc/tickMs);
 }
+function wrapDelta(a,b,n){ let d=b-a; if(d>n/2) d-=n; else if(d<-n/2) d+=n; return d; }
 function interpPos(s,i){
   const cur=s.body[i], prev=s.prev[Math.min(i,s.prev.length-1)]||cur;
   const t=tickProgress();
+  if(cfg.wrap) // shortest way across the seam, so a segment crossing an edge slides over it
+    return { x:prev.x+wrapDelta(prev.x,cur.x,COLS)*t, y:prev.y+wrapDelta(prev.y,cur.y,ROWS)*t };
   return { x:lerp(prev.x,cur.x,t), y:lerp(prev.y,cur.y,t) };
 }
 function drawSnake(s){
   const n=s.body.length;
-  const pts=[];
-  for(let i=0;i<n;i++){ const p=interpPos(s,i); pts.push({x:cellCX(p.x), y:cellCY(p.y)}); }
-  if(pts.length<2) return;
+  const raw=[];
+  for(let i=0;i<n;i++){ raw.push(interpPos(s,i)); }
+  if(n<2) return;
+  if(!cfg.wrap){
+    drawSnakePath(s, raw.map(p=>({x:cellCX(p.x), y:cellCY(p.y)})));
+    return;
+  }
+  // unwrap into one continuous path (each segment placed by its shortest delta from the one before)
+  const pts=[]; let ux=raw[0].x, uy=raw[0].y; pts.push({x:cellCX(ux), y:cellCY(uy)});
+  for(let i=1;i<n;i++){ ux+=wrapDelta(raw[i-1].x,raw[i].x,COLS); uy+=wrapDelta(raw[i-1].y,raw[i].y,ROWS);
+    pts.push({x:cellCX(ux), y:cellCY(uy)}); }
+  // draw the path at the 3x3 wrapped offsets, clipped to the field: the part that leaves one edge shows on the other
+  ctx.save();
+  ctx.beginPath(); ctx.rect(GX,FY,COLS*CELL,FH); ctx.clip();
+  for(let oy=-1;oy<=1;oy++) for(let ox=-1;ox<=1;ox++){
+    let inView=false;
+    for(const p of pts){ const px=p.x+ox*COLS*CELL, py=p.y+oy*FH;
+      if(px>GX-CELL && px<GX+COLS*CELL+CELL && py>FY-CELL && py<FY+FH+CELL){ inView=true; break; } }
+    if(!inView) continue;
+    drawSnakePath(s, pts.map(p=>({x:p.x+ox*COLS*CELL, y:p.y+oy*FH})));
+  }
+  ctx.restore();
+}
+function drawSnakePath(s,pts){
+  const n=pts.length;
   ctx.save();
   ctx.lineCap='round'; ctx.lineJoin='round';
   // glow pass
@@ -482,17 +608,20 @@ function drawMenu(){
   ctx.font=`800 ${ts2}px system-ui,sans-serif`;
   ctx.fillStyle='#f2f5ff'; ctx.shadowColor='#ff4fd8'; ctx.shadowBlur=24;
   ctx.fillText('SERPENT', cx, H*0.16+ts); ctx.shadowBlur=0;
-  const s1=fitFont('One serpent. One touch. Two lives.',17,GW*0.9,500);
+  const l1=cfg.two?'One serpent. One touch. Two lives.':'One serpent. One touch.';
+  const l2=cfg.two?'Eat the first orb and split. Steer both.':'Eat. Grow. Stay clear of your tail.';
+  const s1=fitFont(l1,17,GW*0.9,500);
   ctx.font=`500 ${s1}px system-ui,sans-serif`; ctx.fillStyle='rgba(225,232,255,0.85)';
-  ctx.fillText('One serpent. One touch. Two lives.', cx, H*0.16+ts+36);
-  const s2=fitFont('Eat the first orb and split. Steer both.',15,GW*0.9,500);
+  ctx.fillText(l1, cx, H*0.16+ts+36);
+  const s2=fitFont(l2,15,GW*0.9,500);
   ctx.font=`500 ${s2}px system-ui,sans-serif`; ctx.fillStyle='rgba(225,232,255,0.5)';
-  ctx.fillText('Eat the first orb and split. Steer both.', cx, H*0.16+ts+60);
+  ctx.fillText(l2, cx, H*0.16+ts+60);
   if(best>0){ ctx.fillStyle='rgba(255,209,102,0.9)'; ctx.font='700 16px system-ui,sans-serif';
     ctx.fillText('BEST '+best, cx, H*0.16+ts+88); }
-  // demo: two mirrored sine serpents, one in each lane
-  const demoY=H*0.52, amp=26, segs=16;
-  for(const [col,sgn,dy] of [['#22e6ff',-1,-30],['#ff4fd8',1,30]]){
+  // demo: mirrored sine serpents (one lone serpent when single)
+  const demoY=Math.max(H*0.52, H*0.16+ts+88+72), amp=26, segs=16;
+  const demo=cfg.two ? [['#22e6ff',-1,-30],['#ff4fd8',1,30]] : [['#22e6ff',-1,0]];
+  for(const [col,sgn,dy] of demo){
     ctx.save(); ctx.shadowColor=col; ctx.shadowBlur=14;
     ctx.strokeStyle=col; ctx.lineWidth=9; ctx.lineCap='round'; ctx.lineJoin='round';
     ctx.beginPath();
@@ -503,20 +632,25 @@ function drawMenu(){
     }
     ctx.stroke(); ctx.restore();
   }
+  // option panel sits under the demo (DOM, see the options script)
+  uiShow='menu'; uiTop=demoY+66;
+  const py=Math.max(H*0.78, uiTop+3*44+34);
   const p=0.5+0.5*Math.sin(t*4);
   ctx.fillStyle=`rgba(255,255,255,${0.35+0.4*p})`;
-  const hs=fitFont('SWIPE TO STEER',20,GW*0.78,700); ctx.font=`700 ${hs}px system-ui,sans-serif`;
-  ctx.fillText('SWIPE TO STEER', cx, H*0.78);
+  const m1=cfg.ai?'WATCH THE AI PLAY':'SWIPE TO STEER';
+  const hs=fitFont(m1,20,GW*0.78,700); ctx.font=`700 ${hs}px system-ui,sans-serif`;
+  ctx.fillText(m1, cx, py);
   const hs2=fitFont('TAP TO START',16,GW*0.6,600); ctx.font=`600 ${hs2}px system-ui,sans-serif`;
   ctx.fillStyle='rgba(255,255,255,0.45)';
-  ctx.fillText('TAP TO START', cx, H*0.78+28);
+  ctx.fillText('TAP TO START', cx, py+28);
 }
 function drawOver(){
   const cx=GX+GW/2;
   ctx.fillStyle='rgba(4,5,16,0.72)'; ctx.fillRect(-30,-30,W+60,H+60);
   ctx.textAlign='center'; ctx.fillStyle='#ff5d73';
-  const ts=fitFont('SPLIT ENDS',48,GW*0.85,800); ctx.font=`800 ${ts}px system-ui,sans-serif`;
-  ctx.shadowColor='#ff5d73'; ctx.shadowBlur=22; ctx.fillText('SPLIT ENDS', cx, H*0.36); ctx.shadowBlur=0;
+  const ot=cfg.two?'SPLIT ENDS':'SERPENT DOWN';
+  const ts=fitFont(ot,48,GW*0.85,800); ctx.font=`800 ${ts}px system-ui,sans-serif`;
+  ctx.shadowColor='#ff5d73'; ctx.shadowBlur=22; ctx.fillText(ot, cx, H*0.36); ctx.shadowBlur=0;
   ctx.fillStyle='#eef1ff';
   const ss=fitFont(String(score),76,GW*0.5,800); ctx.font=`800 ${ss}px system-ui,sans-serif`;
   ctx.fillText(String(score), cx, H*0.36+84);
@@ -524,8 +658,10 @@ function drawOver(){
   ctx.fillText('BEST '+best+(score>=best&&score>0?'  -  NEW BEST':''), cx, H*0.36+116);
   const p=0.5+0.5*Math.sin(performance.now()/350);
   ctx.fillStyle=`rgba(255,255,255,${0.35+0.4*p})`;
-  const hs=fitFont('TAP TO RETRY',19,GW*0.7,700); ctx.font=`700 ${hs}px system-ui,sans-serif`;
-  ctx.fillText('TAP TO RETRY', cx, H*0.64);
+  const om=cfg.ai?'RESTARTING':'TAP TO RETRY';
+  const hs=fitFont(om,19,GW*0.7,700); ctx.font=`700 ${hs}px system-ui,sans-serif`;
+  ctx.fillText(om, cx, H*0.64);
+  if(!cfg.ai){ uiShow='over'; uiTop=H*0.64+34; }
 }
 
 // ---------- loop ----------
@@ -539,6 +675,15 @@ function frame(now){
 }
 resize(); reset(); requestAnimationFrame(frame);
 
+// ---------- mode selection ----------
+function applyCfg(c){
+  if('ai' in c) cfg.ai=!!c.ai; if('wrap' in c) cfg.wrap=!!c.wrap; if('two' in c) cfg.two=!!c.two;
+  try{ localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }catch(e){}
+  best=loadBest();
+  if(mode==='over') mode='menu';
+  if(mode!=='play') reset();
+}
+
 // debug hooks
 window.__ns={ get mode(){return mode}, get score(){return score}, get best(){return best},
   get splitDone(){return splitDone}, get snakes(){return snakes},
@@ -546,15 +691,961 @@ window.__ns={ get mode(){return mode}, get score(){return score}, get best(){ret
   get tickMs(){return tickMs}, get muted(){return muted},
   get W(){return W}, get H(){return H}, get GX(){return GX}, get GW(){return GW},
   get COLS(){return COLS}, get ROWS(){return ROWS}, get CELL(){return CELL}, get FY(){return FY},
-  start:startGame, reset:reset,
+  start:startGame, reset:reset, toMenu:toMenu,
+  get cfg(){return cfg}, get deathCause(){return deathCause},
+  get ui(){return {show:uiShow, top:uiTop}},
+  setCfg(c){ applyCfg(c); },
   setDir(name){ queueDir(name); },
   forceSplit(){ if(!splitDone && mode==='play') doSplit(); },
-  placeFood(x,y){ foods=[{x:x,y:y,ph:0},{x:COLS-1-x,y:y,ph:0}]; },
+  placeFood(x,y){ foods=cfg.two ? [{x:x,y:y,ph:0},{x:COLS-1-x,y:y,ph:0}] : [{x:x,y:y,ph:0}]; },
   placeFoodAhead(){ const s=snakes[0], h=s.body[0];
-    const fx=h.x+s.dir.x, fy=h.y+s.dir.y;
-    if(inBounds(fx,fy)){ foods=[{x:fx,y:fy,ph:0},{x:COLS-1-fx,y:fy,ph:0}]; return true; } return false; },
+    let fx=h.x+s.dir.x, fy=h.y+s.dir.y;
+    if(cfg.wrap){ fx=(fx+COLS)%COLS; fy=(fy+ROWS)%ROWS; }
+    if(inBounds(fx,fy)){ foods=cfg.two ? [{x:fx,y:fy,ph:0},{x:COLS-1-fx,y:fy,ph:0}] : [{x:fx,y:fy,ph:0}]; return true; } return false; },
   stepNow(){ step(); },
   setScore(n){ score=n; } };
+</script>
+<script>
+"use strict";
+/* Neon Serpent AI (v9 brain, both board types + single-snake brain). Plays through window.__ns.setDir() only. */
+/* Neon Serpent AI — plays the shipped game through its own input.
+   Every decision goes through window.__ns.setDir(), the exact function a
+   swipe calls. The AI never touches positions, scores, or internals.
+   v8 movement (on top of the v7 brain below): the style is phased by a
+   MEASURED, smooth risk r in [0,1] (aiRisk: how much of the board the two
+   linked bodies forbid, how little room the head can still reach for its
+   length, whether a hazard is live), never by a score threshold.
+   - Low r (open board, short snakes): ROAMING. A* straight to the nearest
+     fruit over exact moving bodies, few turns, light jitter so equal routes
+     vary; the cycle is ignored, the whole board gets used.
+   - Rising r: FOCUSING -> FOCUSED. Off-cycle steps cost more, and a direct
+     route must beat the cycle by a margin that grows with r (the freedom
+     slack shrinks as (1-r)^2). Smooth, no switch.
+   - Every free route is only taken if a proven way HOME exists from where it
+     ends (aiHomeProof), hazards simulated in time; when the cycle is not
+     clean ahead it is not an option at all and the AI goes straight.
+   v9 TORUS: the board wraps (left<->right, top<->bottom). The mirror is
+   M(c)=(12-x,(y+6) mod 19); cyan may now use all 13x19 cells. Cycle, home
+   proof, risk flood fill, A* heuristic and every neighbour/bounds check
+   are toroidal. The conflict-free cap is the independent-set bound of M on
+   the torus (123 cells, score 120); the best patrol cycle is 121 cells
+   (CP-SAT optimal), so a patrolling AI tops out at score 118.
+   v7 brain (flat-board numbers below are historical):
+   - The snakes are one linked walk: magenta is always M(c)=(12-x,y+6) of
+     cyan, so cyan's body must never meet M(body). That caps cyan's body at
+     91 cells (score 88) no matter what; the largest conflict-free cycle that
+     keeps every food pair reachable is 84 cells (solver-proven optimal), so
+     the AI patrols an 84-cell Hamiltonian cycle (best layout picked by
+     headless trials over many solver-generated 84-cycles).
+   - When a hazard sits on the cycle, a depth-first search with cycle-first
+     move ordering finds a survive-and-rejoin detour (it can leave the cycle
+     anywhere on the board); a layered BFS is the fallback. Every plan is
+     re-simulated with moving bodies each tick and dropped if it goes illegal.
+   - Food the cycle can never reach gets a verified round-trip excursion.
+   - If the head is off the cycle with no hazard and no route home, the old
+     greedy planner (flood-fill + tail-reachability) takes over. */
+const AI = {
+  paused: false, runs: 0, sessionBest: 0,
+  allBest: 0,
+  strategy: 'STARTING', grow: 0, lastScore: 0,
+  lastHeads: '', lastMode: 'menu', lastSplit: false,
+  ticksSinceEat: 0, committedPath: null, plan: null, restartTimer: null, stepMs: 0, lastStepT: 0,
+};
+const AI_DIRS = { up:{x:0,y:-1}, down:{x:0,y:1}, left:{x:-1,y:0}, right:{x:1,y:0} };
+const AI_NAMES = ['up','down','left','right'];
+const AI_NEIGH = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
+function aiMirror(d){ return {x:-d.x, y:d.y}; }
+const AI_C=13, AI_R=19, AI_N=247;
+function aiWX(x){ return (x%13+13)%13; }
+function aiWY(y){ return (y%19+19)%19; }
+function aiKey(x,y){ return x+','+y; }
+
+function aiState(){
+  const ns = window.__ns; if(!ns) return null;
+  return { ns: ns, mode: ns.mode, score: ns.score,
+    snakes: ns.snakes.map(s=>({ dir:{x:s.dir.x,y:s.dir.y}, body:s.body.map(c=>({x:c.x,y:c.y})) })),
+    foods: ns.foods.map(f=>({x:f.x,y:f.y})),
+    hazards: ns.hazards.map(h=>({x:h.x,y:h.y,life:h.life})),
+    COLS: ns.COLS, ROWS: ns.ROWS, split: ns.splitDone };
+}
+function aiBFS(sx, sy, blocked, targets, COLS, ROWS){
+  const tset = new Set(targets.map(t=>aiKey(t.x,t.y)));
+  if(tset.has(aiKey(sx,sy))) return 0;
+  const seen = new Set([aiKey(sx,sy)]);
+  let frontier = [[sx,sy]], d = 0;
+  while(frontier.length){
+    d++; const next = [];
+    for(const cell of frontier){
+      for(const dd of AI_NEIGH){
+        const nx=AIW?(cell[0]+dd.x+COLS)%COLS:cell[0]+dd.x, ny=AIW?(cell[1]+dd.y+ROWS)%ROWS:cell[1]+dd.y;
+        if(!AIW&&(nx<0||nx>=COLS||ny<0||ny>=ROWS)) continue;
+        const k=aiKey(nx,ny);
+        if(seen.has(k)||blocked.has(k)) continue;
+        if(tset.has(k)) return d;
+        seen.add(k); next.push([nx,ny]);
+      }
+    }
+    frontier = next;
+  }
+  return Infinity;
+}
+function aiFlood(sx, sy, blocked, COLS, ROWS){
+  const seen = new Set([aiKey(sx,sy)]);
+  let frontier=[[sx,sy]], count=0;
+  while(frontier.length){
+    const next=[];
+    for(const cell of frontier){
+      count++;
+      for(const dd of AI_NEIGH){
+        const nx=AIW?(cell[0]+dd.x+COLS)%COLS:cell[0]+dd.x, ny=AIW?(cell[1]+dd.y+ROWS)%ROWS:cell[1]+dd.y;
+        if(!AIW&&(nx<0||nx>=COLS||ny<0||ny>=ROWS)) continue;
+        const k=aiKey(nx,ny);
+        if(seen.has(k)||blocked.has(k)) continue;
+        seen.add(k); next.push([nx,ny]);
+      }
+    }
+    frontier=next;
+  }
+  return count;
+}
+// ---------- Hamiltonian cycle (post-split backbone) ----------
+// Two backbones, one per board type, chosen by aiConfigure(wrap):
+//  torus (wrap on): 121-cell conflict-free cycle (CP-SAT optimum), cyan uses all 13x19.
+//  flat  (wrap off): 84-cell conflict-free cycle, cyan confined to rows 0..12 (v8).
+const AI_CELLS_TORUS = [[0,6],[1,6],[2,6],[3,6],[4,6],[5,6],[5,5],[4,5],[4,4],[5,4],[6,4],[6,3],[5,3],[4,3],[4,2],[5,2],[5,1],[5,0],[5,18],[4,18],[4,17],[5,17],[5,16],[4,16],[4,15],[3,15],[2,15],[1,15],[1,16],[2,16],[3,16],[3,17],[2,17],[1,17],[1,18],[1,0],[2,0],[2,18],[3,18],[3,0],[4,0],[4,1],[3,1],[3,2],[3,3],[2,3],[1,3],[1,4],[2,4],[3,4],[3,5],[2,5],[1,5],[0,5],[0,4],[0,3],[0,2],[1,2],[2,2],[2,1],[1,1],[0,1],[0,0],[0,18],[0,17],[0,16],[0,15],[0,14],[0,13],[0,12],[0,11],[1,11],[1,12],[1,13],[1,14],[2,14],[3,14],[4,14],[4,13],[5,13],[5,14],[5,15],[6,15],[6,14],[6,13],[6,12],[6,11],[5,11],[5,12],[4,12],[4,11],[3,11],[3,12],[3,13],[2,13],[2,12],[2,11],[2,10],[1,10],[0,10],[0,9],[1,9],[2,9],[2,8],[3,8],[4,8],[4,9],[3,9],[3,10],[4,10],[5,10],[5,9],[5,8],[5,7],[4,7],[3,7],[2,7],[1,7],[1,8],[0,8],[0,7]];
+const AI_CELLS_FLAT = [[0,6],[1,6],[2,6],[3,6],[4,6],[4,5],[3,5],[2,5],[2,4],[2,3],[2,2],[1,2],[1,3],[1,4],[1,5],[0,5],[0,4],[0,3],[0,2],[0,1],[0,0],[1,0],[1,1],[2,1],[2,0],[3,0],[3,1],[3,2],[4,2],[5,2],[5,1],[4,1],[4,0],[5,0],[6,0],[6,1],[6,2],[6,3],[5,3],[4,3],[3,3],[3,4],[4,4],[5,4],[6,4],[6,5],[5,5],[5,6],[5,7],[5,8],[4,8],[4,7],[3,7],[3,8],[3,9],[3,10],[4,10],[4,9],[5,9],[5,10],[5,11],[5,12],[4,12],[4,11],[3,11],[3,12],[2,12],[1,12],[0,12],[0,11],[0,10],[1,10],[1,11],[2,11],[2,10],[2,9],[1,9],[0,9],[0,8],[1,8],[2,8],[2,7],[1,7],[0,7]];
+let AIW = true;          // wrap flag the AI tables are currently built for
+let AI_CYCLE = new Map(), AI_CYCLE_KEYS = [], AI_CYCLE_IDX = new Map(), AI_CYCLE_LEN = 0;
+let AI_RA = 0.10, AI_RB = 0.50, AI_NCELLS = 247;
+function aiCycleDirName(st){
+  if(st.snakes.length!==2) return null;
+  const h = st.snakes[0].body[0];
+  const d = AI_CYCLE.get(h.x+','+h.y);
+  if(!d) return null;
+  if(d.x===1) return 'right';
+  if(d.x===-1) return 'left';
+  if(d.y===-1) return 'up';
+  return 'down';
+}
+function aiCycleDist(fromKey, toKey){
+  const a=AI_CYCLE_IDX.get(fromKey), b=AI_CYCLE_IDX.get(toKey);
+  if(a===undefined||b===undefined) return Infinity;
+  return (b-a+AI_CYCLE_LEN)%AI_CYCLE_LEN;
+}
+// ---------- pathfinder (shortcuts + detours) ----------
+// BFS over the JOINT state: the state is cyan's cell; magenta's cell is
+// the offset mirror (12-x, y+6), so a move is valid only when BOTH
+// snakes' next cells are free. A cyan-only BFS can return a path that
+// walks magenta into a wall or body, which is how the AI used to loop
+// forever flip-flopping between a shortcut and the patrol.
+// Returns {dirs:[direction names for cyan...], len, end:{x,y}} or null.
+// The first step never reverses `curDir` (the game rejects reverses).
+function aiPath(sx, sy, blocked, targets, COLS, ROWS, curDir){
+  const tset = new Set(targets.map(t=>aiKey(t.x,t.y)));
+  if(tset.has(aiKey(sx,sy))) return {dirs:[], len:0, end:{x:sx,y:sy}};
+  const DIRS4=[['up',0,-1],['down',0,1],['left',-1,0],['right',1,0]];
+  const prev = new Map();
+  const seen = new Set([aiKey(sx,sy)]);
+  let frontier=[[sx,sy]];
+  while(frontier.length){
+    const next=[];
+    for(const cell of frontier){
+      const cx=cell[0], cy=cell[1];
+      const mx=12-cx, my=AIW?(cy+6)%19:cy+6; // magenta head for this cyan cell
+      for(const step of DIRS4){
+        const nm=step[0], dx=step[1], dy=step[2];
+        if(cx===sx && cy===sy && curDir && dx===-curDir.x && dy===-curDir.y) continue;
+        let nx=cx+dx, ny=cy+dy, nmx=mx-dx, nmy=my+dy; // magenta moves by mirror(d)
+        if(AIW){ nx=(nx+COLS)%COLS; ny=(ny+ROWS)%ROWS; nmx=(nmx+COLS)%COLS; nmy=(nmy+ROWS)%ROWS; }
+        else if(nx<0||nx>=COLS||ny<0||ny>=ROWS||nmx<0||nmx>=COLS||nmy<0||nmy>=ROWS) continue;
+        const k=aiKey(nx,ny), km=aiKey(nmx,nmy);
+        if(seen.has(k)||blocked.has(k)||blocked.has(km)) continue;
+        seen.add(k);
+        prev.set(k,{from:aiKey(cx,cy), dir:nm});
+        if(tset.has(k)){
+          const dirs=[]; let kk=k;
+          while(kk!==aiKey(sx,sy)){ const p=prev.get(kk); dirs.unshift(p.dir); kk=p.from; }
+          return {dirs:dirs, len:dirs.length, end:{x:nx,y:ny}};
+        }
+        next.push([nx,ny]);
+      }
+    }
+    frontier=next;
+  }
+  return null;
+}
+// Simulate a whole path step by step with MOVING bodies (tails vacate,
+// growth on eating), exactly as the game steps. Returns true only if
+// every step is non-fatal for both snakes and the end position is
+// survivable (each head can still reach its own tail). A static BFS can
+// bless a path whose later steps run into a body that has since moved;
+// this is the gate that stops the AI committing to those.
+function aiSimulatePath(dirs, st){
+  const COLS=st.COLS, ROWS=st.ROWS;
+  let bodies = st.snakes.map(s=>s.body.map(c=>({x:c.x,y:c.y})));
+  let grow = AI.grow;
+  const haz = new Set(st.hazards.map(h=>aiKey(h.x,h.y)));
+  const foodSet = new Set(st.foods.map(f=>aiKey(f.x,f.y)));
+  for(const name of dirs){
+    const d=AI_DIRS[name];
+    const md = bodies.length===2 ? aiMirror(d) : null;
+    const nh = bodies.map((b,i)=>{ let x=b[0].x+(i===0?d.x:md.x), y=b[0].y+(i===0?d.y:md.y);
+      if(AIW){ x=(x+COLS)%COLS; y=(y+ROWS)%ROWS; } return {x:x,y:y}; });
+    if(!AIW) for(const h of nh) if(h.x<0||h.x>=COLS||h.y<0||h.y>=ROWS) return false;
+    if(bodies.length===2 && nh[0].x===nh[1].x && nh[0].y===nh[1].y) return false;
+    for(const h of nh){
+      if(haz.has(aiKey(h.x,h.y))) return false;
+      for(let j=0;j<bodies.length;j++){
+        const lim = grow===0 ? bodies[j].length-1 : bodies[j].length;
+        for(let k=0;k<lim;k++) if(bodies[j][k].x===h.x && bodies[j][k].y===h.y) return false;
+      }
+    }
+    const ate = nh.some(h=>foodSet.has(aiKey(h.x,h.y)));
+    bodies = bodies.map((b,i)=>{
+      const nb=[nh[i]].concat(b);
+      if(grow===0) nb.pop();
+      return nb;
+    });
+    grow = Math.max(0, grow-1) + (ate?1:0);
+  }
+  const blocked = new Set();
+  bodies.forEach(b=>b.forEach(c=>blocked.add(aiKey(c.x,c.y))));
+  haz.forEach(k=>blocked.add(k));
+  // End safety: each head must have at least its own body length of
+  // reachable free space, so the position is not a dead end. (Requiring
+  // tail-reachability here was too strict: after a growth step the tail
+  // is a body-length away, and long snakes failed it even on open
+  // ground — which starved the AI of food paths entirely.)
+  for(let i=0;i<bodies.length;i++){
+    const sp = aiFlood(bodies[i][0].x, bodies[i][0].y, blocked, COLS, ROWS);
+    if(sp < bodies[i].length) return false;
+  }
+  return true;
+}
+
+// ---------- v7 planner: whole-board time-expanded search around the cycle ----------
+// The linked system is one cyan walk: magenta's cell is always M(c)=(12-x,y+6),
+// so only cyan's body is tracked. Cyan head c is legal iff c, M(c) and M^-1(c)
+// avoid cyan's body (tail vacating unless growing) and no hazard covers c or M(c).
+// Normal play is a cycle patrol. When patrolling would die within a hazard's
+// remaining life, a layered BFS over (cell, time) finds the shortest detour
+// anywhere on the board that survives and then lands back on the cycle with a
+// verified clean run ahead. The same search plans safe round trips to food
+// the cycle can never reach.
+const AI_ID = (x,y)=>y*13+x;
+const AI_MID = new Int16Array(247).fill(-1), AI_MINV = new Int16Array(247).fill(-1);
+const AI_IDX = new Int16Array(247).fill(-1), AI_SUCC = new Int16Array(247).fill(-1);
+const AI_NB = [];   // cyan-space neighbours (linked-walk machinery)
+const AI_SNB = [];  // full-board neighbours (single-snake brain)
+function aiConfigure(wrap){
+  AIW = !!wrap;
+  const cells = AIW ? AI_CELLS_TORUS : AI_CELLS_FLAT;
+  const next = new Map();
+  for(let i=0;i<cells.length;i++){
+    const a=cells[i], b=cells[(i+1)%cells.length];
+    let dx=b[0]-a[0], dy=b[1]-a[1];
+    if(AIW){ if(dx>6) dx-=13; else if(dx<-6) dx+=13; if(dy>9) dy-=19; else if(dy<-9) dy+=19; } // seam steps
+    next.set(a[0]+','+a[1], {x:dx, y:dy});
+  }
+  AI_CYCLE = next; AI_CYCLE_KEYS = [...next.keys()];
+  AI_CYCLE_IDX = new Map(AI_CYCLE_KEYS.map((k,i)=>[k,i]));
+  AI_CYCLE_LEN = AI_CYCLE_KEYS.length;
+  AI_MID.fill(-1); AI_MINV.fill(-1); AI_IDX.fill(-1); AI_SUCC.fill(-1);
+  for(let y=0;y<19;y++) for(let x=0;x<13;x++){
+    if(AIW){ AI_MID[AI_ID(x,y)] = AI_ID(12-x,(y+6)%19); AI_MINV[AI_ID(x,y)] = AI_ID(12-x,(y+13)%19); }
+    else { if(y<=12) AI_MID[AI_ID(x,y)] = AI_ID(12-x,y+6); if(y>=6) AI_MINV[AI_ID(x,y)] = AI_ID(12-x,y-6); }
+  }
+  AI_CYCLE_KEYS.forEach((k,i)=>{ const p=k.split(','); AI_IDX[AI_ID(+p[0],+p[1])]=i; });
+  AI_CYCLE_KEYS.forEach((k,i)=>{ const p=k.split(','), q=AI_CYCLE_KEYS[(i+1)%AI_CYCLE_LEN].split(',');
+    AI_SUCC[AI_ID(+p[0],+p[1])]=AI_ID(+q[0],+q[1]); });
+  AI_NB.length = 0; AI_SNB.length = 0;
+  for(let id=0;id<247;id++){ const x=id%13, y=(id/13)|0, out=[], full=[];
+    for(const d of AI_NEIGH){
+      if(AIW){ out.push(AI_ID((x+d.x+13)%13,(y+d.y+19)%19)); full.push(AI_ID((x+d.x+13)%13,(y+d.y+19)%19)); }
+      else { const nx=x+d.x, ny=y+d.y;
+        if(nx>=0&&nx<13&&ny>=0&&ny<19) full.push(AI_ID(nx,ny));
+        if(y<=12 && nx>=0&&nx<13&&ny>=0&&ny<=12) out.push(AI_ID(nx,ny)); }
+    }
+    AI_NB.push(out); AI_SNB.push(full); }
+  AI_RA = AIW ? 0.10 : 0.22; AI_RB = AIW ? 0.50 : 0.80; AI_NCELLS = AIW ? 247 : 169;
+}
+aiConfigure(true);
+function aiDirOf(from,to){
+  let dx=(to%13)-(from%13), dy=((to/13)|0)-((from/13)|0);
+  if(AIW){ if(dx>6) dx-=13; else if(dx<-6) dx+=13; if(dy>9) dy-=19; else if(dy<-9) dy+=19; } // seam steps
+  return dx===1?'right':dx===-1?'left':dy===-1?'up':'down';
+}
+function aiStep(id,d){
+  if(AIW) return AI_ID(((id%13)+d.x+13)%13, (((id/13)|0)+d.y+19)%19);
+  const nx=(id%13)+d.x, ny=((id/13)|0)+d.y;
+  return (nx<0||nx>12||ny<0||ny>12) ? -1 : AI_ID(nx,ny);   // flat: cyan lives in rows 0..12
+}
+// does following the cycle from this body stay legal for K steps?
+function aiCycleOK(body, grow, t0, K, X){
+  const L=body.length; if(AI_IDX[body[0]]<0) return false;
+  const occ=new Uint8Array(247), ring=new Int16Array(256);
+  for(let k=0;k<L;k++){ ring[(255-k)&255]=body[k]; occ[body[k]]=1; }
+  let hd=255, len=L, g=grow, h=body[0];
+  const taken=[0,0,0,0];
+  for(let s=0;s<K;s++){
+    const p=AI_SUCC[h];
+    if(t0+s < X.blockUntil[p]) return false;
+    const mp=AI_MID[p], mi=AI_MINV[p];
+    if(mp<0) return false;
+    if(g===0){ occ[ring[(hd-len+1)&255]]=0; }
+    if(occ[p]||occ[mp]||(mi>=0&&occ[mi])) return false;
+    hd=(hd+1)&255; ring[hd]=p; occ[p]=1;
+    if(g>0){ g--; len++; }
+    const fi=X.foodAt[p]; if(fi>=0 && !taken[fi]){ taken[fi]=1; g++; }
+    h=p;
+  }
+  return true;
+}
+function aiExpand(S, p, t, X){
+  if(p<0) return null;
+  if(t < X.blockUntil[p]) return null;
+  const mp=AI_MID[p], mi=AI_MINV[p]; if(mp<0) return null;
+  const body=S.body, L=body.length, lim=S.grow>0?L:L-1;
+  for(let k=0;k<lim;k++){ const c=body[k]; if(c===p||c===mp||c===mi) return null; }
+  const nb=new Array(S.grow>0?L+1:L); nb[0]=p;
+  for(let k=1;k<nb.length;k++) nb[k]=body[k-1];
+  let g=S.grow>0?S.grow-1:0, ate=S.ate;
+  const fi=X.foodAt[p]; if(fi>=0){ g++; ate=true; }
+  return {body:nb, grow:g, ate:ate, parent:S, move:aiDirOf(body[0],p)};
+}
+function aiMakeCtx(st){
+  const blockUntil=new Int16Array(247), foodAt=new Int8Array(247).fill(-1);
+  const stepMs = Math.max(20, AI.stepMs||100);
+  let maxRem=0;
+  for(const h of st.hazards){
+    const rem=Math.ceil(h.life*1000/stepMs)+1; if(rem>maxRem) maxRem=rem;
+    const hc=AI_ID(h.x,h.y);
+    if((AIW||h.y<=12) && blockUntil[hc]<rem) blockUntil[hc]=rem;
+    const mi=AI_MINV[hc]; if(mi>=0 && blockUntil[mi]<rem) blockUntil[mi]=rem;
+  }
+  st.foods.forEach((f,i)=>{ const fc=AI_ID(f.x,f.y); if(AIW||f.y<=12) foodAt[fc]=i; const mi=AI_MINV[fc]; if(mi>=0) foodAt[mi]=i; });
+  return {blockUntil, foodAt, maxRem};
+}
+// layered BFS over (head cell, time). Returns {moves, goal} or null.
+function aiSearch(st, X, needEat, Hmax, budget){
+  const tS=performance.now(); let tick=0;
+  const root={body:st.snakes[0].body.map(c=>AI_ID(c.x,c.y)), grow:AI.grow, ate:false, parent:null, move:null};
+  const cur0=st.snakes[0].dir;
+  const rootRev = aiStep(root.body[0], {x:-cur0.x, y:-cur0.y});
+  const seen=new Set(); let layer=[root], deepest=root;
+  for(let t=0;t<Hmax;t++){
+    const next=[];
+    for(const S of layer){
+      const hdc=S.body[0];
+      for(const p of AI_NB[hdc]){
+        if(t===0 && p===rootRev) continue;
+        const key=((p*2+(S.ate?1:0))*256)+t;
+        if(seen.has(key)) continue;
+        if(--budget<0 || (X.maxRem===0 && (++tick&255)===0 && performance.now()-tS>120)) return needEat ? null : aiPlanFrom(deepest); // wall-clock guard (real browser)
+        const ns=aiExpand(S,p,t,X); if(!ns) continue;
+        seen.add(key);
+        if((!needEat||ns.ate) && AI_IDX[p]>=0 &&
+           aiCycleOK(ns.body, ns.grow, t+1, aiCycleNeed(ns.body.length, X, t+1), X)) return aiPlanFrom(ns,true);
+        next.push(ns);
+      }
+    }
+    if(!next.length) break;
+    layer=next; deepest=next[0];
+  }
+  return needEat ? null : aiPlanFrom(deepest);
+}
+function aiPlanFrom(S, goal){
+  const moves=[]; for(let n=S;n&&n.parent;n=n.parent) moves.unshift(n.move);
+  return {moves, goal:!!goal};
+}
+function aiPlanValid(moves, st, X){
+  let S={body:st.snakes[0].body.map(c=>AI_ID(c.x,c.y)), grow:AI.grow, ate:false};
+  for(let t=0;t<moves.length;t++){
+    const hd=S.body[0], d=AI_DIRS[moves[t]];
+    S=aiExpand(S,aiStep(hd,d),t,X); if(!S) return false;
+  }
+  return true;
+}
+
+// Depth-first survive-and-rejoin search with cycle-first move ordering. Walks the
+// cycle (and forward chords) when it can, deviates only when it must, and
+// succeeds once every hazard has expired and the head sits on the cycle with a
+// clean run ahead. Node-capped; returns {moves, goal} (deepest path when capped).
+function aiDfsPlan(st, X, nodeCap){
+  const body0=st.snakes[0].body.map(c=>AI_ID(c.x,c.y));
+  const cur0=st.snakes[0].dir;
+  const rev=aiStep(body0[0], {x:-cur0.x, y:-cur0.y});
+  const ring=new Int16Array(1024), occ=new Uint8Array(247), path=new Int16Array(800);
+  const L0=body0.length;
+  for(let k=0;k<L0;k++){ ring[(1023-k)&1023]=body0[k]; occ[body0[k]]=1; }
+  const tDfs=performance.now();
+  let hd=1023, len=L0, nodes=0, bestT=-1, bestPath=null, succT=-1;
+  const taken=[0,0,0,0];
+  const T_END = Math.min(X.maxRem, 600);          // hazards are gone at this time
+  const T_MAX = T_END + 70;
+  function cycleOKNow(g,t){
+    const bodyArr=new Array(len); for(let k=0;k<len;k++) bodyArr[k]=ring[(hd-k)&1023];
+    return aiCycleOK(bodyArr, g, t, aiCycleNeed(len, X, t), X);
+  }
+  function dfs(t,g){
+    if(t>=T_END && AI_IDX[ring[hd&1023]]>=0 && cycleOKNow(g,t)){ succT=t; return true; }
+    if(t>=T_MAX) return false;
+    if(++nodes>nodeCap) return false;
+    if((nodes&255)===0 && performance.now()-tDfs>150){ nodes=nodeCap+1; return false; } // wall-clock guard (real browser)
+    if(t>bestT){ bestT=t; bestPath=Array.prototype.slice.call(path,0,t); }
+    const h=ring[hd&1023], nbs=AI_NB[h], succ=AI_SUCC[h];
+    // order: cycle successor, other cycle cells by forward jump, then the rest
+    const cand=[]; 
+    for(let i=0;i<nbs.length;i++){ const p=nbs[i];
+      if(t===0 && p===rev) continue;
+      let pr = p===succ ? 0 : (AI_IDX[p]>=0 && AI_IDX[h]>=0 ? 1+((AI_IDX[p]-AI_IDX[h]+AI_CYCLE_LEN)%AI_CYCLE_LEN)/1000 : (AI_IDX[p]>=0?1.5:2));
+      cand.push([pr,p]); }
+    cand.sort((a,b)=>a[0]-b[0]);
+    for(let ci=0;ci<cand.length;ci++){
+      const p=cand[ci][1];
+      if(t<X.blockUntil[p]) continue;
+      const mp=AI_MID[p], mi=AI_MINV[p]; if(mp<0) continue;
+      let tail=-1;
+      if(g===0){ tail=ring[(hd-len+1)&1023]; occ[tail]=0; }
+      if(occ[p]||occ[mp]||(mi>=0&&occ[mi])){ if(tail>=0) occ[tail]=1; continue; }
+      hd=(hd+1)&1023; ring[hd]=p; occ[p]=1; path[t]=p;
+      let g2=g>0?g-1:0, len2=len; if(g>0) len++; 
+      const fi=X.foodAt[p]; let ate=false; if(fi>=0 && !taken[fi]){ taken[fi]=1; g2++; ate=true; }
+      const ok=dfs(t+1,g2);
+      if(ate) taken[X.foodAt[p]]=0;
+      len=len2; occ[p]=0; hd=(hd-1)&1023;
+      if(tail>=0) occ[tail]=1;
+      if(ok) return true;
+      if(nodes>nodeCap) return false;
+    }
+    return false;
+  }
+  const ok=dfs(0,AI.grow);
+  const cells = ok ? Array.prototype.slice.call(path,0,succT) : bestPath;
+  const moves=[]; let prev=body0[0];
+  for(const p of (cells||[])){ moves.push(aiDirOf(prev,p)); prev=p; }
+  return {ok, nodes, moves, goal:ok};
+}
+
+// ---------- v8: risk-phased free movement ----------
+// Risk r in [0,1] is measured, never keyed to a score: how much of the
+// (cyan-space) board the two linked bodies forbid, how little free space the
+// head can still reach for its length, and whether a hazard is live. It is
+// smooth, so the style slides from "go straight for the fruit" to "lean on
+// the cycle" with no switch.
+function aiSmooth(a,b,x){ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); }
+function aiRisk(st, X){
+  const body=st.snakes[0].body.map(c=>AI_ID(c.x,c.y)), L=body.length;
+  const F=new Uint8Array(247);
+  for(const b of body){ F[b]=1; const m=AI_MID[b]; if(m>=0) F[m]=1; const mi=AI_MINV[b]; if(mi>=0) F[mi]=1; }
+  for(let c=0;c<247;c++) if(X.blockUntil[c]>0) F[c]=1;
+  let forb=0; for(let c=0;c<247;c++) if(F[c]) forb++;
+  // flood fill of legal cells from the head
+  const seen=new Uint8Array(247), q=[body[0]]; seen[body[0]]=1; let space=0;
+  for(let i=0;i<q.length;i++){ const c=q[i]; space++;
+    for(const p of AI_NB[c]) if(!seen[p] && !F[p] && AI_MID[p]>=0){ seen[p]=1; q.push(p); } }
+  const fill=forb/AI_NCELLS;
+  const tight=Math.max(0, Math.min(1, 1 - space/(1.5*L+10)));
+  const r=Math.max(0, Math.min(1, aiSmooth(AI_RA,AI_RB,fill) + 0.3*tight + (st.hazards.length?0.10:0)));
+  return {r:r, fill:fill, space:space, tight:tight};
+}
+// Is there a way home from this state? "Home" = head on the cycle with the
+// whole cycle ahead clear for (body length + hazard time) steps. Layered BFS
+// over (cell,time) with exact moving bodies; no food is assumed.
+function aiCycleNeed(L, X, t){ return Math.min(200, Math.max(30, L+8) + Math.max(0, X.maxRem - t)); }
+function aiHomeProof(S, t0, X0, budget){
+  const X={blockUntil:X0.blockUntil, foodAt:AI_NOFOOD, maxRem:X0.maxRem};
+  const L0=S.body.length;
+  if(AI_IDX[S.body[0]]>=0 && aiCycleOK(S.body, S.grow, t0, aiCycleNeed(L0,X,t0), X)) return true;
+  let layer=[{body:S.body, grow:S.grow, ate:false, parent:null, move:null}];
+  const seen=new Set(); const Hmax=Math.max(24, X.maxRem-t0+14);
+  for(let t=t0;t<t0+Hmax;t++){
+    const next=[];
+    for(const T of layer){
+      for(const p of AI_NB[T.body[0]]){
+        const key=(p*512)+(t-t0); if(seen.has(key)) continue;
+        if(--budget<0) return false;
+        const ns=aiExpand(T,p,t,X); if(!ns) continue;
+        seen.add(key);
+        if(AI_IDX[p]>=0 && aiCycleOK(ns.body, ns.grow, t+1, aiCycleNeed(ns.body.length,X,t+1), X)) return true;
+        next.push(ns);
+      }
+    }
+    if(!next.length) return false;
+    layer=next;
+  }
+  return false;
+}
+const AI_NOFOOD = new Int8Array(247).fill(-1);
+// Direct, purposeful route to the fruit: A* over exact moving bodies. Step cost
+// 1, a small cost per turn (long clean lines read as intent, not wobble), a
+// little jitter (so equal routes vary), and an off-cycle surcharge that grows
+// with risk (late on, equal-length options hug the cycle). Every goal is
+// accepted only if a way home still exists from where it ends.
+function aiForage(st, X, rk){
+  const S0={body:st.snakes[0].body.map(c=>AI_ID(c.x,c.y)), grow:AI.grow, ate:false, parent:null, move:null, g:0, t:0, dir:-1};
+  const cur0=st.snakes[0].dir;
+  const rootRev=aiStep(S0.body[0], {x:-cur0.x, y:-cur0.y});
+  const tg=[]; for(let c=0;c<247;c++) if(X.foodAt[c]>=0) tg.push([c%13,(c/13)|0]);
+  if(!tg.length) return null;
+  const H=c=>{ const x=c%13,y=(c/13)|0; let m=99; for(const q of tg){ const ax=Math.abs(q[0]-x), ay=Math.abs(q[1]-y); const d=AIW?Math.min(ax,13-ax)+Math.min(ay,19-ay):ax+ay; if(d<m) m=d; } return m; }; // torus distance
+  // Proofs assume every live hazard lasts 2 steps longer than the planner's own
+  // estimate. Each later re-plan re-adds its own 1-step safety margin to a hazard
+  // that has really aged, so a proof built with the same margin goes stale by one
+  // step while the roam executes (that exact slip killed a run at score 23).
+  const XP={blockUntil:X.blockUntil.map(v=>v>0?v+2:0), foodAt:X.foodAt, maxRem:X.maxRem>0?X.maxRem+2:0};
+  const open=[{n:S0,f:H(S0.body[0])}]; const seen=new Set(); let nodes=0, proofs=0;
+  const pushOpen=e=>{ open.push(e); let i=open.length-1; while(i>0){ const p=(i-1)>>1; if(open[p].f<=open[i].f) break; const tmp=open[p]; open[p]=open[i]; open[i]=tmp; i=p; } };
+  const popOpen=()=>{ const top=open[0], last=open.pop(); if(open.length){ open[0]=last; let i=0; for(;;){ let l=2*i+1, r=l+1, m=i; if(l<open.length&&open[l].f<open[m].f) m=l; if(r<open.length&&open[r].f<open[m].f) m=r; if(m===i) break; const tmp=open[m]; open[m]=open[i]; open[i]=tmp; i=m; } } return top; };
+  const tStart=performance.now();
+  while(open.length && nodes<2500){
+    if((nodes&63)===63 && performance.now()-tStart>30) return null; // never stall the game loop
+    const S=popOpen().n;
+    if(S.ate){
+      if(++proofs>5) return null;
+      if(aiHomeProof({body:S.body, grow:S.grow}, S.t, XP, 3000)) return aiPlanFrom(S,true);
+      continue;
+    }
+    if(S.t>=70) continue;
+    for(let di=0;di<4;di++){
+      const d=AI_NEIGH[di], hd=S.body[0];
+      const p=aiStep(hd,d);
+      if(p<0) continue;
+      if(S.t===0 && p===rootRev) continue;
+      const key=(p*4+di)*2+(S.ate?1:0); if(S.t>0 && seen.has(key)) continue;
+      const ns=aiExpand(S,p,S.t,X); if(!ns) continue;
+      nodes++; seen.add(key);
+      const cost=1 + (S.dir>=0 && S.dir!==di ? 0.18 : 0) + Math.random()*0.04 + (AI_IDX[p]<0 ? 0.55*rk.r : 0);
+      ns.g=S.g+cost; ns.t=S.t+1; ns.dir=di;
+      pushOpen({n:ns, f:ns.g+(ns.ate?0:H(p))});
+    }
+  }
+  return null;
+}
+// Steps the cycle itself needs to reach a fruit, from anywhere (walk to the
+// nearest cycle cell first). Infinity when no fruit cell lies on the cycle.
+function aiCycleCost(st, X){
+  const hx=st.snakes[0].body[0].x, hy=st.snakes[0].body[0].y;
+  let best=Infinity;
+  for(let c=0;c<247;c++){ if(X.foodAt[c]<0 || AI_IDX[c]<0) continue;
+    for(let i=0;i<AI_CYCLE_LEN;i++){ const k=AI_CYCLE_KEYS[i], p=k.split(','); 
+      const ax=Math.abs(+p[0]-hx), ay=Math.abs(+p[1]-hy);
+      const walk=AIW?Math.min(ax,13-ax)+Math.min(ay,19-ay):ax+ay;
+      const cd=(AI_IDX[c]-i+AI_CYCLE_LEN)%AI_CYCLE_LEN;
+      if(walk+cd<best) best=walk+cd; } }
+  return best;
+}
+
+function aiNextMove(st){
+  if(st.snakes.length!==2) return null;
+  const X=aiMakeCtx(st);
+  const body=st.snakes[0].body.map(c=>AI_ID(c.x,c.y));
+  // 1. follow a cached plan while it still simulates legal
+  if(AI.plan && AI.plan.moves.length){
+    if(aiPlanValid(AI.plan.moves, st, X)){ const m=AI.plan.moves.shift(); AI.strategy=AI.plan.label; return m; }
+    AI.plan=null;
+  }
+  const onCyc = AI_IDX[body[0]]>=0;
+  const patrolOK = onCyc && aiCycleOK(body, AI.grow, 0, aiCycleNeed(body.length, X, 0), X);
+  // 2. phase by measured risk: open board = straight at the fruit; filling
+  //    board = direct routes must beat the cycle by a margin that grows with risk.
+  const rk=aiRisk(st, X); AI.risk=rk.r;
+  // A forage search that found nothing (or whose route lost to the cycle) is not
+  // repeated every tick: same fruit, short cooldown. Keeps decisions cheap.
+  const fkey=st.foods.map(f=>f.x+','+f.y).join('|');
+  if(AI.fCool>0) AI.fCool--;
+  if(st.foods.length && !(AI.fCool>0 && AI.fKey===fkey)){
+    const fp=aiForage(st, X, rk);
+    AI.fKey=fkey; AI.fCool=(fp && fp.moves.length)?0:6;
+    if(fp && fp.moves.length){
+      const lc=aiCycleCost(st, X);
+      // Cycle not clean ahead -> it is not an option, go straight. Otherwise the
+      // direct route is taken unless the cycle is clearly quicker; the slack
+      // (extra steps tolerated for a freer, more direct line) shrinks smoothly
+      // with risk, and the margin the direct route must win by grows with it.
+      const slack = 16*(1-rk.r)*(1-rk.r);
+      const accept = !patrolOK || fp.moves.length*(1+5*rk.r*rk.r) <= lc + slack;
+      if(!accept) AI.fCool=5;
+      if(accept){ fp.label = rk.r<0.33 ? 'ROAMING' : (rk.r<0.66 ? 'FOCUSING' : 'FOCUSED'); AI.plan=fp; const m=fp.moves.shift(); AI.strategy=fp.label; return m; }
+    }
+  }
+  // 3. the cycle backbone and its hazard detours (v7)
+  let wantTrip=false;
+  if(patrolOK && st.foods.length){
+    wantTrip = !st.foods.some(f=>{ const fc=AI_ID(f.x,f.y); const mi=AI_MINV[fc];
+      return ((AIW||f.y<=12) && AI_IDX[fc]>=0) || (mi>=0 && AI_IDX[mi]>=0); });
+  }
+  if(patrolOK && !wantTrip){ AI.strategy='PATROL'; return aiDirOf(body[0], AI_SUCC[body[0]]); }
+  let plan=null;
+  if(wantTrip){
+    if(AI.tCool>0) AI.tCool--;
+    plan = (AI.tCool>0 && AI.tKey===fkey) ? null : aiSearch(st, X, true, 70, 40000);
+    if(plan && plan.goal && plan.moves.length){ plan.label='EXCURSION'; }
+    else { if(!(AI.tCool>0 && AI.tKey===fkey)){ AI.tKey=fkey; AI.tCool=8; } plan=null; }
+    if(!plan){ AI.strategy='PATROL'; return aiDirOf(body[0], AI_SUCC[body[0]]); }
+  } else {
+    plan=aiDfsPlan(st, X, (X.maxRem>0||!AIW) ? 40000 : 8000); // no hazard: only a rejoin search, keep it cheap (long torus bodies make each node costly)
+    if(!plan.goal){ const alt=aiSearch(st, X, false, Math.max(40, X.maxRem+12), 60000); if(alt && alt.goal) plan=alt; else if(!(plan.moves&&plan.moves.length)) plan=alt; }
+    if(plan && !plan.goal && X.maxRem===0) plan=null; // no hazard and no way home: let the greedy planner hunt
+    if(plan && plan.moves.length) plan.label = plan.goal ? 'DETOUR' : 'SURVIVING';
+    else plan=null;
+  }
+  if(!plan) return null;
+  AI.plan=plan; const m=plan.moves.shift(); AI.strategy=plan.label; return m;
+}
+
+function aiDecide(){
+  const st = aiState(); if(!st || st.mode!=='play' || AI.paused) return;
+  const COLS=st.COLS, ROWS=st.ROWS, snakes=st.snakes, foods=st.foods, hazards=st.hazards;
+  const split = snakes.length===2;
+  const cur = snakes[0].dir;
+  const cyc = aiCycleDirName(st); // the cycle move, when the head is on it
+  const curBlocked = new Set();
+  snakes.forEach(s=>{
+    const lim = AI.grow===0 ? s.body.length-1 : s.body.length;
+    for(let i=0;i<lim;i++) curBlocked.add(aiKey(s.body[i].x, s.body[i].y));
+  });
+  hazards.forEach(h=>curBlocked.add(aiKey(h.x,h.y)));
+  if(snakes.length===1){
+    const sm = aiSingleMove(st);
+    if(sm){ window.__ns.setDir(sm); return; }
+  }
+  if(split){
+    const nm = aiNextMove(st);
+    if(nm){
+      window.__ns.setDir(nm);
+      window.__AI_DEBUG = window.__AI_DEBUG || { decisions: [], deaths: [] };
+      window.__AI_DEBUG.decisions.push({ score: st.score, grow: AI.grow, dir: nm, heads: st.snakes.map(s=>({x:s.body[0].x,y:s.body[0].y})),
+        dirs: st.snakes.map(s=>({x:s.dir.x,y:s.dir.y})), foods: st.foods, hazards: st.hazards.length, label: AI.strategy });
+      if(window.__AI_DEBUG.decisions.length>40) window.__AI_DEBUG.decisions.shift();
+      AI.committedPath = null;
+      return;
+    }
+  }
+  const cycleCells = AI_CYCLE_KEYS.map(k=>{ const p=k.split(','); return {x:+p[0], y:+p[1]}; });
+  let commitDir=null;
+  // Committed paths: follow the plan through instead of replanning
+  // every tick (replanning flip-flops and loops). A path is only
+  // committed when the whole thing simulates safe with moving bodies.
+  if(AI.committedPath && AI.committedPath.length){
+    commitDir = AI.committedPath[0];
+  } else if(split){
+    const hd = snakes[0].body[0];
+    const onCycle = AI_CYCLE.has(aiKey(hd.x,hd.y));
+    if(onCycle && foods.length && st.score >= 50){
+      // Excursion: round trip cycle -> off-cycle food -> cycle. Only
+      // late (the cycle feeds the snakes fine until ~50) and only when
+      // the trip is SHORT (<=14 steps): a long trip is exposed to a
+      // new hazard spawning on the way back, which is how the open
+      // excursion policy died at 52. Food on the cycle needs no trip.
+      const leg1 = aiPath(hd.x, hd.y, curBlocked, foods, COLS, ROWS, cur);
+      if(leg1 && leg1.dirs.length && !AI_CYCLE.has(aiKey(leg1.end.x,leg1.end.y))){
+        const lastDir = AI_DIRS[leg1.dirs[leg1.dirs.length-1]];
+        const leg2 = aiPath(leg1.end.x, leg1.end.y, curBlocked, cycleCells, COLS, ROWS, lastDir);
+        if(leg2 && leg2.dirs.length){
+          const trip = leg1.dirs.concat(leg2.dirs);
+          if(trip.length <= 14 && aiSimulatePath(trip, st)){ AI.committedPath = trip; commitDir = trip[0]; }
+        }
+      }
+    }
+    if(!commitDir && !onCycle){
+      // No excursion and off the cycle: path back to the cycle.
+      const rp = aiPath(hd.x, hd.y, curBlocked, cycleCells, COLS, ROWS, cur);
+      if(rp && rp.dirs.length && aiSimulatePath(rp.dirs, st)){ AI.committedPath = rp.dirs.slice(); commitDir = rp.dirs[0]; }
+    }
+  }
+  // solid cells for the death check: old bodies, tail excluded iff it vacates
+  const solid = new Set();
+  snakes.forEach(s=>{
+    const lim = AI.grow===0 ? s.body.length-1 : s.body.length;
+    for(let i=0;i<lim;i++) solid.add(aiKey(s.body[i].x, s.body[i].y));
+  });
+  const haz = new Set(hazards.map(h=>aiKey(h.x,h.y)));
+  let best=null, bestVal=-Infinity, bestLabel='SURVIVING';
+  for(const name of AI_NAMES){
+    const d=AI_DIRS[name];
+    if(d.x===-cur.x && d.y===-cur.y) continue; // reverse: the game rejects it
+    const dirs = [d, split?aiMirror(d):null];
+    const nh = snakes.map((s,i)=>{ let x=s.body[0].x+dirs[i].x, y=s.body[0].y+dirs[i].y;
+      if(AIW){ x=(x+COLS)%COLS; y=(y+ROWS)%ROWS; } return {x:x,y:y}; });
+    let dead=false;
+    if(split && nh[0].x===nh[1].x && nh[0].y===nh[1].y) dead=true;
+    if(!AIW) for(const h of nh) if(h.x<0||h.x>=COLS||h.y<0||h.y>=ROWS) dead=true;
+    if(!dead) for(const h of nh){
+      if(solid.has(aiKey(h.x,h.y)) || haz.has(aiKey(h.x,h.y))) dead=true;
+    }
+    if(dead) continue;
+    // resulting bodies and blocked set
+    const newBodies = snakes.map((s,i)=>{
+      const b=[nh[i]].concat(s.body);
+      if(AI.grow===0) b.pop();
+      return b;
+    });
+    const blocked = new Set();
+    newBodies.forEach(b=>b.forEach(c=>blocked.add(aiKey(c.x,c.y))));
+    hazards.forEach(h=>blocked.add(aiKey(h.x,h.y)));
+    const d0 = aiBFS(nh[0].x, nh[0].y, blocked, foods, COLS, ROWS);
+    const d1 = split ? aiBFS(nh[1].x, nh[1].y, blocked, foods, COLS, ROWS) : Infinity;
+    const sp0 = aiFlood(nh[0].x, nh[0].y, blocked, COLS, ROWS);
+    const sp1 = split ? aiFlood(nh[1].x, nh[1].y, blocked, COLS, ROWS) : Infinity;
+    const totalLen = newBodies.reduce((a,b)=>a+b.length,0);
+    const minSpace = Math.min(sp0, sp1);
+    const dMin = Math.min(d0, d1);
+    const eats = foods.some(f=>(f.x===nh[0].x&&f.y===nh[0].y) || (split && f.x===nh[1].x&&f.y===nh[1].y));
+    const hasPath = isFinite(dMin);
+    // Tail-chase safety: can each head still reach its own tail through
+    // free cells? A snake that can reach its tail can survive forever by
+    // following it, so a move that breaks this for either snake is a
+    // trap even when the flood fill still counts plenty of space. The
+    // tail cell itself is the target; every other body cell is blocked.
+    function tailReachable(snakeIdx){
+      const body = newBodies[snakeIdx];
+      const tail = body[body.length-1];
+      const blk = new Set(blocked);
+      blk.delete(aiKey(tail.x, tail.y));
+      return isFinite(aiBFS(nh[snakeIdx].x, nh[snakeIdx].y, blk, [tail], COLS, ROWS));
+    }
+    const safe = tailReachable(0) && (!split || tailReachable(1));
+    let value, label;
+    // The cycle move wins whenever it is legal: it is the survival
+    // backbone. Greedy only takes over when the cycle move is fatal
+    // (a hazard sitting on the cycle) or the head is off the cycle.
+    const cycleBonus = (name===cyc) ? 20000 : 0;
+    // A committed path (excursion or rejoin) wins over patrolling:
+    // follow the plan through. The candidate loop's death check is
+    // still the hard gate — a fatal committed step is skipped and the
+    // plan is dropped.
+    const commitBonus = (name===commitDir) ? 40000 : 0;
+    // Prefer landing back on the cycle after a detour, so the patrol resumes.
+    const rejoinBonus = (split && AI_CYCLE.has(aiKey(nh[0].x, nh[0].y))) ? 5000 : 0;
+    if(hasPath){
+      value = commitBonus + cycleBonus + rejoinBonus + (safe?10000:0) + 5000 - dMin*10 + minSpace + (eats?500:0) + (name===(cur.x===1?'right':cur.x===-1?'left':cur.y===-1?'up':'down')?1:0);
+      label = name===commitDir ? 'EXCURSION' : (name===cyc ? 'PATROL' : (eats?'HUNTING — EATING':'HUNTING'));
+    } else {
+      value = commitBonus + cycleBonus + rejoinBonus + (safe?10000:0) - 5000 + minSpace;
+      label = name===commitDir ? 'EXCURSION' : (name===cyc ? 'PATROL' : (hazards.length?'WAITING OUT HAZARD':'SURVIVING'));
+    }
+    if(value>bestVal){ bestVal=value; best=name; bestLabel=label; }
+  }
+  if(best){ AI.strategy=bestLabel; window.__ns.setDir(best); }
+  else AI.strategy='NO SAFE MOVE';
+  // Consume the committed plan when its step is taken; drop it when the
+  // plan's step was not taken (it was fatal, or something beat it).
+  if(AI.committedPath && AI.committedPath.length){
+    if(best===commitDir) AI.committedPath.shift();
+    else AI.committedPath=null;
+    if(AI.committedPath && !AI.committedPath.length) AI.committedPath=null;
+  }
+  // debug: keep the last decision so a death can be explained
+  window.__AI_DEBUG = window.__AI_DEBUG || { decisions: [], deaths: [] };
+  window.__AI_DEBUG.decisions.push({ score: st.score, grow: AI.grow, dir: best,
+    heads: st.snakes.map(s=>({x:s.body[0].x,y:s.body[0].y})),
+    dirs: st.snakes.map(s=>({x:s.dir.x,y:s.dir.y})),
+    foods: st.foods, hazards: st.hazards.length, label: AI.strategy });
+  if(window.__AI_DEBUG.decisions.length>40) window.__AI_DEBUG.decisions.shift();
+}
+// ---------- single-snake brain (one snake, no mirror, no cycle machinery) ----------
+// Greedy with a safety proof. Each tick:
+//  1. BFS (time-aware: a body cell is enterable once the tail has passed it) to the
+//     nearest fruit, hazards blocked. Take the first step ONLY if, after virtually
+//     walking the whole path and eating, the head can still reach its own tail.
+//  2. Otherwise pick the legal move that keeps the tail reachable and leaves the most
+//     room, preferring the longest way round to the tail (stalls safely until a
+//     fruit route opens up). Works on wrap-on and wrap-off boards (AI_SNB).
+function aiSingleReach(nb, haz){
+  // BFS from head over cells not in the body (tail cell counts as free target).
+  const tail=nb[nb.length-1], blk=new Uint8Array(247);
+  for(let k=0;k<nb.length-1;k++) blk[nb[k]]=1;
+  for(let c=0;c<247;c++) if(haz[c]) blk[c]=1;
+  const dist=new Int16Array(247).fill(-1); dist[nb[0]]=0; const q=[nb[0]]; let area=0, td=-1;
+  for(let i=0;i<q.length;i++){ const c=q[i]; area++;
+    if(c===tail && td<0) td=dist[c];
+    for(const p of AI_SNB[c]){ if(dist[p]>=0||blk[p]) continue; dist[p]=dist[c]+1; q.push(p); } }
+  return {area:area, tailDist:td};
+}
+function aiSingleStall(st){
+  const body=st.snakes[0].body.map(c=>AI_ID(c.x,c.y)), L=body.length, g=AI.grow, head=body[0];
+  const haz=new Uint8Array(247); for(const h of st.hazards) haz[AI_ID(h.x,h.y)]=1;
+  const freeAt=new Int16Array(247);
+  for(let k=0;k<L;k++) freeAt[body[k]]=L-k+g;
+  for(let c=0;c<247;c++) if(haz[c]) freeAt[c]=9999;
+  const food=new Uint8Array(247); for(const f of st.foods) food[AI_ID(f.x,f.y)]=1;
+  // 1. safe route to the nearest fruit
+  const par=new Int16Array(247).fill(-2), dist=new Int16Array(247);
+  par[head]=-1; const q=[head]; let found=-1;
+  for(let i=0;i<q.length&&found<0;i++){ const c=q[i];
+    for(const p of AI_SNB[c]){
+      if(par[p]!==-2 || dist[c]+1<freeAt[p]) continue;
+      par[p]=c; dist[p]=dist[c]+1;
+      if(food[p]){ found=p; break; }
+      q.push(p); } }
+  if(found>=0){
+    const path=[]; for(let c=found;c!==head;c=par[c]) path.push(c);   // fruit ... first step
+    const nb=path.concat(body).slice(0, L+Math.min(g,path.length));
+    if(aiSingleReach(nb,haz).tailDist>=0){ AI.strategy='FETCH'; return aiDirOf(head, path[path.length-1]); }
+  }
+  // 2. no proven-safe fruit route: stay alive, keep the tail reachable, keep room
+  let bestP=-1, bestV=-Infinity;
+  for(const p of AI_SNB[head]){
+    if(1<freeAt[p]) continue;
+    const nb=[p].concat(body).slice(0, g>0?L+1:L);
+    const r=aiSingleReach(nb,haz);
+    const v=(r.tailDist>=0?100000:0)+r.area*10+(r.tailDist>=0?r.tailDist:0)+(food[p]?5:0);
+    if(v>bestV){ bestV=v; bestP=p; }
+  }
+  if(bestP>=0){ AI.strategy='STALL'; return aiDirOf(head,bestP); }
+  AI.strategy='NO SAFE MOVE'; return null;
+}
+
+// ---- Hamiltonian-style backbone for ONE snake: a 246-cell cycle (every cell of the
+// 13x19 board except the bottom-left corner, which a snake can still eat by a 1-cell
+// detour). Built once, adjacency self-checked. Works on both board types: the wrap
+// edges only add extra legal shortcuts.
+const AI_HN = 246;
+const AI_HCELL = [];                       // pos -> cell id
+const AI_HPOS = new Int16Array(247).fill(-1);   // cell id -> pos (corner shares (1,17)'s pos)
+(function(){
+  const c=[]; for(let x=0;x<=12;x++) c.push([x,0]);
+  for(let y=1;y<=16;y++){ if(y%2===1) for(let x=12;x>=1;x--) c.push([x,y]); else for(let x=1;x<=12;x++) c.push([x,y]); }
+  for(let x=12;x>=1;x--){ if((12-x)%2===0){ c.push([x,17]); c.push([x,18]); } else { c.push([x,18]); c.push([x,17]); } }
+  for(let y=17;y>=1;y--) c.push([0,y]);
+  for(let i=0;i<c.length;i++){
+    const a=c[i], b=c[(i+1)%c.length];
+    if(Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])!==1) throw new Error('ham cycle not adjacent at '+i);
+    AI_HCELL.push(AI_ID(a[0],a[1])); AI_HPOS[AI_ID(a[0],a[1])]=i;
+  }
+  if(c.length!==AI_HN || new Set(AI_HCELL).size!==AI_HN) throw new Error('ham cycle size');
+  AI_HPOS[AI_ID(0,18)] = AI_HPOS[AI_ID(1,17)];   // corner: eaten as a detour between (1,18) and (0,17)
+})();
+// Pick the neighbour that gets to the fruit soonest AND from which simply following
+// the cycle stays legal for as long as the old body can still be in the way
+// (hazards are checked a short way ahead). Shortcuts are therefore always proven.
+function aiSingleMove(st){
+  const body=st.snakes[0].body.map(c=>AI_ID(c.x,c.y)), L=body.length, g=AI.grow, head=body[0];
+  const haz=new Uint8Array(247); for(const h of st.hazards) haz[AI_ID(h.x,h.y)]=1;
+  const freeAt=new Int16Array(247);
+  for(let k=0;k<L;k++) freeAt[body[k]]=L-k+g;      // step number at which the cell is enterable again
+  const food=st.foods.length ? AI_ID(st.foods[0].x, st.foods[0].y) : -1;
+  const K=Math.min(AI_HN-2, L+g+2);
+  // the corner cell is only enterable from (1,18): aim for that cell when the fruit sits there
+  const foodPos = food<0 ? 0 : (food===AI_ID(0,18) ? AI_HPOS[AI_ID(1,18)] : AI_HPOS[food]);
+  // While every body segment sits further behind the head (in cycle order) than the one
+  // in front of it, the cells between head and tail are all free: only jumps INTO that
+  // arc keep the body in cycle order, which is what keeps later shortcuts provable.
+  const hp=AI_HPOS[head]; let ordered=true, prevB=-1;
+  for(let k=0;k<L;k++){ const b=(hp-AI_HPOS[body[k]]+AI_HN)%AI_HN; if(b<=prevB && k>0){ ordered=false; break; } prevB=b; }
+  const tailD=(AI_HPOS[body[L-1]]-hp+AI_HN)%AI_HN;
+  let bestP=-1, bestCost=Infinity;
+  // Try a long hazard look-ahead first; if no shortcut dodges a far hazard yet, relax it
+  // (the hazard is dodged later, when a shortcut around it is within reach).
+  for(const HLOOK of [14,6,2]){
+    for(const p of AI_SNB[head]){
+      if(1<freeAt[p] || haz[p]) continue;
+      if(ordered){ const d=(AI_HPOS[p]-hp+AI_HN)%AI_HN; if(d<1 || d>tailD-1) continue; }
+      let ok=true, pos=AI_HPOS[p];
+      for(let t=2;t<=K;t++){
+        pos=(pos+1)%AI_HN; const c=AI_HCELL[pos];
+        if(t<freeAt[c] || (t<=HLOOK && haz[c])){ ok=false; break; }
+      }
+      if(!ok) continue;
+      let cost = food<0 ? 0 : (p===food ? 0 : 1+((foodPos-AI_HPOS[p]+AI_HN)%AI_HN));
+      if(AI_HPOS[p]===(AI_HPOS[head]+1)%AI_HN) cost-=0.5;   // tie-break: stay on the cycle
+      if(cost<bestCost){ bestCost=cost; bestP=p; }
+    }
+    if(bestP>=0) break;
+  }
+  if(bestP>=0){ AI.strategy='CYCLE'; return aiDirOf(head,bestP); }
+  return aiSingleStall(st);
+}
+
+function aiRunOver(){
+  const st = aiState(); const sc = st?st.score:0;
+  if(window.__AI_DEBUG && st){
+    window.__AI_DEBUG.deaths.push({ score: sc, grow: AI.grow,
+      heads: st.snakes.map(s=>({x:s.body[0].x,y:s.body[0].y})),
+      dirs: st.snakes.map(s=>({x:s.dir.x,y:s.dir.y})),
+      lens: st.snakes.map(s=>s.body.length),
+      foods: st.foods, hazards: st.hazards,
+      lastDecision: window.__AI_DEBUG.decisions[window.__AI_DEBUG.decisions.length-1]||null });
+  }
+  AI.runs++;
+  if(sc>AI.sessionBest) AI.sessionBest=sc;
+  if(sc>AI.allBest){ AI.allBest=sc; try{ localStorage.setItem('nsai_best', String(sc)); }catch(e){} }
+  AI.strategy='RUN OVER — '+sc;
+  clearTimeout(AI.restartTimer);
+  AI.restartTimer=setTimeout(()=>{
+    if(!AI.paused && window.__ns && window.__ns.cfg.ai && window.__ns.mode==='over') window.__ns.start();
+  }, 1200);
+}
+function aiPoll(){
+  const st = aiState(); if(!st) return;
+  if(!st.ns.cfg.ai){ AI.lastMode = st.mode; return; }
+  if(st.mode==='play' && AI.lastMode!=='play'){
+    AI.grow=0; AI.lastScore=0; AI.lastHeads=''; AI.lastSplit=false; AI.ticksSinceEat=0; AI.plan=null; AI.fCool=0; AI.fKey=''; AI.tCool=0; AI.tKey='';
+  }
+  // Normal speed only: the game's own loop steps, the poll decides once
+  // after each observed step.
+  if(st.mode==='play' && !AI.paused){
+    const heads = st.snakes.map(s=>aiKey(s.body[0].x,s.body[0].y)).join('|');
+    if(heads!==AI.lastHeads){
+      if(st.split && !AI.lastSplit) AI.grow=0;
+      else { const ate = st.score > AI.lastScore; AI.grow = Math.max(0, AI.grow-1) + (ate?1:0); }
+      { const nowT = performance.now(); if(AI.lastStepT){ const dt=Math.min(300,Math.max(15,nowT-AI.lastStepT)); AI.stepMs = AI.stepMs ? AI.stepMs*0.7+dt*0.3 : dt; } AI.lastStepT = nowT; }
+      if(st.score > AI.lastScore) AI.ticksSinceEat=0; else AI.ticksSinceEat++;
+      AI.lastScore = st.score; AI.lastHeads = heads; AI.lastSplit = st.split;
+      aiDecide();
+    }
+  }
+  if(st.mode==='over' && AI.lastMode==='play') aiRunOver();
+  AI.lastMode = st.mode;
+}
+
+// called by the game when a run starts in AI mode
+function aiOnStart(){
+  const ns=window.__ns;
+  aiConfigure(ns.cfg.wrap);
+  AI.paused=false; window.__nsPaused=false;
+  AI.grow=0; AI.lastScore=0; AI.lastHeads=''; AI.lastSplit=false; AI.ticksSinceEat=0; AI.plan=null;
+  AI.fCool=0; AI.fKey=''; AI.tCool=0; AI.tKey=''; AI.committedPath=null; AI.stepMs=0; AI.lastStepT=0;
+  clearTimeout(AI.restartTimer);
+}
+setInterval(aiPoll, 15);
+
+</script>
+<script>
+(function(){
+  "use strict";
+  const ns=window.__ns, opts=document.getElementById('opts'), ctl=document.getElementById('ai-ctl');
+  const bP=document.getElementById('ai-pause'), bR=document.getElementById('ai-restart'), bM=document.getElementById('ai-menu');
+  const PAUSE='<svg viewBox="0 0 24 24" width="18" height="18"><rect x="6" y="5" width="4" height="14" fill="currentColor"/><rect x="14" y="5" width="4" height="14" fill="currentColor"/></svg>';
+  const PLAY='<svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 4l13 8-13 8z" fill="currentColor"/></svg>';
+  function sync(){
+    const c=ns.cfg;
+    for(const seg of opts.querySelectorAll('.seg')){
+      const on=c[seg.dataset.k]?'1':'0';
+      for(const b of seg.querySelectorAll('button')) b.classList.toggle('on', b.dataset.v===on);
+    }
+  }
+  for(const seg of opts.querySelectorAll('.seg')) for(const b of seg.querySelectorAll('button')){
+    b.addEventListener('click', e=>{ e.stopPropagation(); ns.setCfg({[seg.dataset.k]: b.dataset.v==='1'}); sync(); b.blur(); });
+    b.addEventListener('pointerdown', e=>e.stopPropagation());
+  }
+  bP.addEventListener('click', ()=>{ AI.paused=!AI.paused; window.__nsPaused=AI.paused; bP.blur(); });
+  bR.addEventListener('click', ()=>{ ns.start(); bR.blur(); });
+  bM.addEventListener('click', ()=>{ clearTimeout(AI.restartTimer); AI.paused=false; window.__nsPaused=false; ns.toMenu(); bM.blur(); });
+  for(const b of [bP,bR,bM]) b.addEventListener('pointerdown', e=>e.stopPropagation());
+  let lastShow='', lastTop=-1, lastPaused=null, lastCtl='';
+  function loop(){
+    const u=ns.ui, c=ns.cfg;
+    if(u.show!==lastShow){ lastShow=u.show; opts.style.display=u.show?'flex':'none'; if(u.show) sync(); }
+    if(u.show && Math.abs(u.top-lastTop)>0.5){ lastTop=u.top; opts.style.top=u.top+'px'; }
+    const showCtl = (c.ai && ns.mode!=='menu') ? 'flex' : 'none';
+    if(showCtl!==lastCtl){ lastCtl=showCtl; ctl.style.display=showCtl; }
+    if(AI.paused!==lastPaused){ lastPaused=AI.paused; bP.innerHTML=AI.paused?PLAY:PAUSE; bP.setAttribute('aria-label', AI.paused?'play':'pause'); }
+    requestAnimationFrame(loop);
+  }
+  sync(); loop();
+})();
 </script>
 </body>
 </html>
