@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#060a18">
+<title>Territory</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#060a18; }
+  body { position:fixed; inset:0; width:100%; touch-action:none; user-select:none; -webkit-user-select:none;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #c { display:block; width:100%; height:100%; touch-action:none; }
+  #mute { position:fixed; top:calc(env(safe-area-inset-top,0px) + 10px); right:12px; z-index:10;
+    width:40px; height:40px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
+    background:rgba(10,12,26,.55); color:#cfd6ff; font-size:17px; cursor:pointer; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="mute" aria-label="mute">♪</button>
+<script>
+"use strict";
+/* Territory — Paper.io, with a fuse. You are cyan. Step off your land and you
+   lay a trail; step back on and everything the trail enclosed becomes yours.
+   But the trail FADES. The oldest part of it is the fuse: when that first cell
+   burns out the whole loop is lost (nothing claimed, nothing dies). A ring
+   around your square is the fuse gauge. Magenta rivals patrol and claim; if
+   one touches your trail while you are out, you are done. Every threat is
+   drawn: a red dashed line shows exactly where a rival will hit your trail. */
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); layout(); }
+addEventListener('resize', resize);
+cv.oncontextmenu=e=>e.preventDefault();
+
+// ---------- audio ----------
+let AC=null, muted=false, master=null;
+function audio(){ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)();
+  master=AC.createGain(); master.gain.value=0.45; master.connect(AC.destination); } return AC; }
+function tone(f,d,type,vol,slide,delay){
+  if(muted) return; let ac; try{ ac=audio(); }catch(e){ return; }
+  if(ac.state==='suspended') ac.resume();
+  const o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime+(delay||0);
+  o.type=type||'triangle'; o.frequency.setValueAtTime(f,t);
+  if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,slide),t+d);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol||0.3,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+d);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+d+0.05); }
+const PENTA=[0,2,4,7,9,12,14,16,19,21,24];
+function sfxClaim(n){ const k=Math.max(3,Math.min(8,Math.round(3+n/8)));
+  for(let i=0;i<k;i++) tone(392*Math.pow(2,PENTA[i]/12),0.2,'sine',0.26,0,i*0.055); }
+function sfxLost(){ tone(300,0.45,'sawtooth',0.2,60); tone(150,0.5,'triangle',0.2,40); }
+function sfxTick(urgent){ tone(urgent?1100:820,0.05,'square',0.07); }
+function sfxThreat(){ tone(240,0.09,'square',0.1,200); }
+function sfxCut(){ tone(520,0.14,'square',0.16,1400); tone(1040,0.2,'sine',0.14,2000,0.06); }
+function sfxTurn(){ tone(620,0.03,'square',0.035); }
+function sfxDeath(){ tone(260,0.55,'sawtooth',0.4,40); tone(90,0.6,'triangle',0.35,30); }
+function suspendAudio(){ if(AC && AC.state==='running') AC.suspend(); }
+function resumeAudio(){ if(AC && AC.state==='suspended' && !muted) AC.resume(); }
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) suspendAudio(); else { last=performance.now(); resumeAudio(); } });
+addEventListener('blur', suspendAudio); addEventListener('focus', resumeAudio);
+addEventListener('pagehide', suspendAudio);
+const muteBtn=document.getElementById('mute');
+muteBtn.onclick=e=>{ e.stopPropagation(); muted=!muted; muteBtn.textContent=muted?'✕':'♪';
+  if(muted) suspendAudio(); else { audio(); resumeAudio(); } };
+muteBtn.addEventListener('pointerdown', e=>e.stopPropagation());
+function buzz(p){ if(navigator.vibrate) try{ navigator.vibrate(p); }catch(e){} }
+
+// ---------- state ----------
+const BEST_KEY='territory_best';
+const COLS=18; let ROWS=30, N=0;
+let GX=0, GW=0, FY=0, CELL=20;
+let owner, ptrail, etrail, flashT;   // owner: 0 none, 1 you, 2..5 rivals. ptrail: time laid or -1. etrail: rival id or 0
+const P={x:0,y:0,px:0,py:0,dir:null,acc:0,trail:[]};
+let enemies=[];                       // 4 fixed slots, ids 2..5
+let mode='menu';                      // menu | play | dying | over
+let started=false, gt=0, pct=0, best=0, newBest=false, dyingT=0, overT=0;
+let queue=[], particles=[], floaters=[], threats=[], killer=null, hitCell=-1;
+let tickT=0, threatCd=0, shakeT=0, flashAll=0, lostFlash=0;
+try{ best=parseFloat(localStorage.getItem(BEST_KEY)||'0')||0; }catch(e){}
+
+const PSPEED=6.6;
+const idx=(x,y)=>y*COLS+x;
+const inB=(x,y)=>x>=0&&x<COLS&&y>=0&&y<ROWS;
+const DIRS=[{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0}];
+function decayTime(){ return Math.max(3.8, 6.6-pct*0.055); }       // seconds the oldest trail cell lives
+function enemySpeed(){ return Math.min(5.8, 3.8+pct*0.045); }       // cells per second
+function enemyTarget(){ return pct<10?2: pct<24?3: 4; }
+
+function layout(){
+  GW=Math.min(W,480);
+  const cw=Math.floor((GW-8)/COLS), availH=H-100;
+  if(mode==='menu' || mode==='over' && false){
+    const nr=Math.max(20,Math.min(36,Math.floor(availH/cw)));
+    if(nr!==ROWS || !owner){ ROWS=nr; initGrid(); }
+  }
+  CELL=Math.max(8,Math.min(cw,Math.floor(availH/ROWS)));
+  GW=CELL*COLS; GX=Math.round((W-GW)/2);
+  FY=90+Math.max(0,Math.floor((availH-CELL*ROWS)/2));
+}
+function initGrid(){ N=COLS*ROWS; owner=new Uint8Array(N); ptrail=new Float32Array(N).fill(-1);
+  etrail=new Uint8Array(N); flashT=new Float32Array(N); }
+
+function countPct(){ let c=0; for(let i=0;i<N;i++) if(owner[i]===1) c++; pct=c/N*100; return c; }
+
+function newGame(){
+  const nr=Math.max(20,Math.min(36,Math.floor((H-100)/Math.floor((Math.min(W,480)-8)/COLS))));
+  ROWS=nr; initGrid(); layout();
+  const sx=Math.floor(COLS/2), sy=Math.floor(ROWS*0.66);
+  for(let y=sy-2;y<=sy+2;y++) for(let x=sx-2;x<=sx+2;x++) owner[idx(x,y)]=1;
+  P.x=P.px=sx; P.y=P.py=sy; P.dir=null; P.acc=0; P.trail=[];
+  enemies=[]; for(let k=0;k<4;k++) enemies.push({id:k+2,alive:false,respawn:0,x:0,y:0,px:0,py:0,dir:DIRS[0],acc:0,trail:[],
+    spawnT:0,phase:0,needPlan:true,d:DIRS[0],p:DIRS[1],a:4,b:4,c1:0});
+  queue=[]; particles=[]; floaters=[]; threats=[]; killer=null; hitCell=-1;
+  started=false; gt=0; newBest=false; dyingT=0; overT=0; tickT=0; threatCd=0; shakeT=0; flashAll=0;
+  countPct();
+  // first two rivals are present from the start, far from you
+  for(let k=0;k<2;k++) spawnEnemy(enemies[k]);
+}
+function startGame(){ newGame(); mode='play'; }
+
+// ---------- claiming ----------
+function floodClaim(id, cells){
+  // cells: this owner's trail. Convert the trail, then every cell the owner's land+trail encloses.
+  const barrier=new Uint8Array(N);
+  for(let i=0;i<N;i++) if(owner[i]===id) barrier[i]=1;
+  for(const i of cells) barrier[i]=1;
+  const vis=new Uint8Array(N), st=[];
+  const push=i=>{ if(!barrier[i]&&!vis[i]){ vis[i]=1; st.push(i); } };
+  for(let x=0;x<COLS;x++){ push(idx(x,0)); push(idx(x,ROWS-1)); }
+  for(let y=0;y<ROWS;y++){ push(idx(0,y)); push(idx(COLS-1,y)); }
+  while(st.length){ const i=st.pop(), x=i%COLS, y=(i/COLS)|0;
+    if(x>0) push(i-1); if(x<COLS-1) push(i+1); if(y>0) push(i-COLS); if(y<ROWS-1) push(i+COLS); }
+  let gained=0, sx=0, sy=0;
+  const take=i=>{ if(id!==1 && owner[i]===1) return false; if(owner[i]===id) return false;
+    owner[i]=id; return true; };
+  for(const i of cells){ if(take(i)){ gained++; sx+=i%COLS; sy+=(i/COLS)|0; } flashT[i]=0.6; }
+  for(let i=0;i<N;i++) if(!barrier[i] && !vis[i] && take(i)){ gained++; sx+=i%COLS; sy+=(i/COLS)|0; flashT[i]=0.6; }
+  return {gained:gained, cx:gained?sx/gained:0, cy:gained?sy/gained:0};
+}
+function closeLoopPlayer(){
+  const cells=P.trail; P.trail=[];
+  for(const i of cells) ptrail[i]=-1;
+  const before=pct*N/100;
+  const r=floodClaim(1,cells);
+  countPct();
+  const gained=pct*N/100-before;
+  if(r.gained>0){
+    sfxClaim(gained); buzz(gained>6?[14,30,14]:10);
+    if(gained>=1.5) floaters.push({text:'+'+(gained/N*100).toFixed(1)+'%',x:GX+(r.cx+0.5)*CELL,y:FY+(r.cy+0.5)*CELL,life:1.1,c:'#eafcff',big:true});
+  }
+}
+
+// ---------- player ----------
+function queueDir(d){
+  if(mode!=='play') return;
+  const ref=queue.length?queue[queue.length-1]:P.dir;
+  if(ref && ref.x===d.x && ref.y===d.y) return;
+  if(ref && ref.x===-d.x && ref.y===-d.y) return;     // no reversing
+  if(queue.length<2) queue.push(d);
+  sfxTurn();
+}
+function playerStep(){
+  if(queue.length) P.dir=queue.shift();
+  if(!P.dir) return false;
+  const nx=P.x+P.dir.x, ny=P.y+P.dir.y;
+  if(!inB(nx,ny)){ P.px=P.x; P.py=P.y; return false; }   // walls just stop you
+  P.px=P.x; P.py=P.y; P.x=nx; P.y=ny;
+  const i=idx(nx,ny);
+  if(etrail[i]){ const e=enemies[etrail[i]-2]; if(e && e.alive) cutEnemy(e); }
+  if(owner[i]===1){ if(P.trail.length) closeLoopPlayer(); }
+  else if(ptrail[i]<0){ ptrail[i]=gt; P.trail.push(i); }
+  return true;
+}
+function loseTrail(){
+  const cells=P.trail;
+  for(const i of cells){ const x=i%COLS, y=(i/COLS)|0;
+    burst(GX+(x+.5)*CELL,FY+(y+.5)*CELL,'120,200,255',2,CELL*2.2); ptrail[i]=-1; }
+  P.trail=[];
+  if(owner[idx(P.x,P.y)]!==1){ const i=idx(P.x,P.y); ptrail[i]=gt; P.trail.push(i); }  // fresh trail starts under you
+  sfxLost(); buzz([40,30,40]); lostFlash=0.5;
+  floaters.push({text:'TRAIL LOST',x:GX+GW/2,y:FY+CELL*2.2,life:1.3,c:'#ffb36b'});
+}
+
+// ---------- rivals ----------
+function spawnEnemy(e){
+  for(let relax=0;relax<2;relax++) for(let t=0;t<200;t++){
+    const x=2+Math.floor(Math.random()*(COLS-4)), y=2+Math.floor(Math.random()*(ROWS-4));
+    if(!relax && Math.abs(x-P.x)+Math.abs(y-P.y)<9) continue;
+    let ok=true;
+    for(let yy=y-1;yy<=y+1&&ok;yy++) for(let xx=x-1;xx<=x+1;xx++){ const i=idx(xx,yy); if(owner[i]||ptrail[i]>=0||etrail[i]){ ok=false; break; } }
+    if(!ok) continue;
+    for(let yy=y-1;yy<=y+1;yy++) for(let xx=x-1;xx<=x+1;xx++){ owner[idx(xx,yy)]=e.id; flashT[idx(xx,yy)]=0.5; }
+    e.alive=true; e.x=e.px=x; e.y=e.py=y; e.acc=0; e.trail=[]; e.spawnT=1.4; e.phase=0; e.needPlan=true;
+    e.dir=DIRS[Math.floor(Math.random()*4)];
+    return;
+  }
+  e.respawn=2; // no room right now, try again shortly
+}
+function cutEnemy(e){
+  for(const i of e.trail){ etrail[i]=0; const x=i%COLS,y=(i/COLS)|0; burst(GX+(x+.5)*CELL,FY+(y+.5)*CELL,'255,106,74',2,CELL*3); }
+  burst(GX+(e.x+.5)*CELL,FY+(e.y+.5)*CELL,'255,90,160',22,CELL*8);
+  e.trail=[]; e.alive=false; e.respawn=4+Math.random()*2;
+  floaters.push({text:'CUT',x:GX+(e.x+.5)*CELL,y:FY+(e.y-0.5)*CELL,life:0.9,c:'#ffd166'});
+  sfxCut(); buzz(25); shakeT=0.12;
+}
+function ownedCount(id){ let c=0; for(let i=0;i<N;i++) if(owner[i]===id) c++; return c; }
+function planExcursion(e){
+  const rev={x:-e.dir.x,y:-e.dir.y};
+  const opts=[];
+  for(const d of DIRS){
+    if(d.x===rev.x&&d.y===rev.y) continue;
+    let x=e.x,y=e.y,s=0,exit=-1;
+    while(s<12){ x+=d.x;y+=d.y;s++; if(!inB(x,y)) break; if(owner[idx(x,y)]!==e.id){ exit=s; break; } }
+    if(exit<0) continue;
+    // need room beyond the exit
+    let room=0,xx=x,yy=y; while(inB(xx,yy)&&room<8){ room++; xx+=d.x; yy+=d.y; }
+    if(room>=4) opts.push({d:d,exit:exit});
+  }
+  let c;
+  if(opts.length){ opts.sort((a,b)=>a.exit-b.exit); c=opts[Math.floor(Math.random()*Math.min(2,opts.length))].d; }
+  else { const free=DIRS.filter(d=>!(d.x===rev.x&&d.y===rev.y)&&inB(e.x+d.x,e.y+d.y)); c=free.length?free[Math.floor(Math.random()*free.length)]:DIRS[0]; }
+  e.d=c;
+  const perp=[{x:c.y,y:c.x},{x:-c.y,y:-c.x}]; if(Math.random()<.5) perp.reverse();
+  e.p=perp[0];
+  e.a=3+Math.floor(Math.random()*4); e.b=3+Math.floor(Math.random()*5); e.c1=0; e.phase=0; e.needPlan=false;
+}
+function nearestHome(e){
+  let best=1e9,bx=e.x,by=e.y;
+  for(let i=0;i<N;i++) if(owner[i]===e.id){ const x=i%COLS,y=(i/COLS)|0; const d=Math.abs(x-e.x)+Math.abs(y-e.y);
+    if(d<best){ best=d; bx=x; by=y; } }
+  return {x:bx,y:by};
+}
+function enemyOK(e,d){
+  const nx=e.x+d.x, ny=e.y+d.y;
+  if(!inB(nx,ny)) return false;
+  if(d.x===-e.dir.x && d.y===-e.dir.y) return false;
+  return etrail[idx(nx,ny)]!==e.id;
+}
+function returnDir(e){
+  const h=nearestHome(e); let bestD=null,bs=1e9;
+  for(const d of DIRS){ if(!enemyOK(e,d)) continue;
+    const s=Math.abs(e.x+d.x-h.x)+Math.abs(e.y+d.y-h.y)+Math.random()*0.4; if(s<bs){ bs=s; bestD=d; } }
+  if(bestD) return bestD;
+  for(const d of DIRS){ const nx=e.x+d.x, ny=e.y+d.y; if(inB(nx,ny)&&!(d.x===-e.dir.x&&d.y===-e.dir.y)) return d; }
+  return {x:-e.dir.x,y:-e.dir.y};
+}
+function enemyNextDir(e){
+  const home=owner[idx(e.x,e.y)]===e.id;
+  if(!e.trail.length && home && e.needPlan) planExcursion(e);
+  if(e.trail.length>=26) e.phase=2;
+  if(e.phase===0 && e.trail.length>=e.a){ e.phase=1; e.c1=0; }
+  if(e.phase===1 && e.c1>=e.b) e.phase=2;
+  if(e.phase===0){
+    if(enemyOK(e,e.d)) return e.d;
+    if(!e.trail.length){ planExcursion(e); if(enemyOK(e,e.d)) return e.d; return returnDir(e); }
+    e.phase=1; e.c1=0;
+  }
+  if(e.phase===1){
+    if(enemyOK(e,e.p)){ e.c1++; return e.p; }
+    const q={x:-e.p.x,y:-e.p.y}; if(enemyOK(e,q)){ e.p=q; e.c1++; return q; }
+    e.phase=2;
+  }
+  return returnDir(e);
+}
+function enemyStep(e){
+  if(ownedCount(e.id)===0 && !e.trail.length){        // lost all land: stake a fresh patch
+    for(let yy=e.y-1;yy<=e.y+1;yy++) for(let xx=e.x-1;xx<=e.x+1;xx++) if(inB(xx,yy)&&owner[idx(xx,yy)]!==1){ owner[idx(xx,yy)]=e.id; }
+    e.needPlan=true;
+  }
+  const d=enemyNextDir(e);
+  e.dir=d; e.px=e.x; e.py=e.y; e.x+=d.x; e.y+=d.y;
+  const i=idx(e.x,e.y);
+  if(ptrail[i]>=0){ playerHit(e,i); return; }
+  if(etrail[i] && etrail[i]!==e.id){ const o=enemies[etrail[i]-2]; if(o&&o.alive) cutEnemy(o); }
+  if(owner[i]===e.id){
+    if(e.trail.length){
+      const cells=e.trail; e.trail=[]; for(const c of cells) etrail[c]=0;
+      floodClaim(e.id,cells); e.needPlan=true; e.phase=0;
+    }
+  } else if(etrail[i]!==e.id){ etrail[i]=e.id; e.trail.push(i); }
+}
+function playerHit(e,cell){
+  if(mode!=='play') return;
+  killer=e; hitCell=cell; mode='dying'; dyingT=0.95; shakeT=0.4; flashAll=0.25;
+  sfxDeath(); buzz([70,40,70]);
+  burst(GX+(P.x+.5)*CELL,FY+(P.y+.5)*CELL,'120,240,255',30,CELL*10);
+  if(pct>best){ best=Math.round(pct*10)/10; newBest=true; try{ localStorage.setItem(BEST_KEY,String(best)); }catch(e2){} }
+}
+
+function computeThreats(){
+  threats=[];
+  if(!P.trail.length) return;
+  for(const e of enemies){
+    if(!e.alive||e.spawnT>0) continue;
+    let x=e.x,y=e.y;
+    for(let s=1;s<=6;s++){ x+=e.dir.x; y+=e.dir.y; if(!inB(x,y)) break;
+      if(ptrail[idx(x,y)]>=0){ threats.push({e:e,tx:x,ty:y,dist:s}); break; } }
+  }
+}
+
+// ---------- fx ----------
+function burst(x,y,rgb,n,spd){
+  for(let i=0;i<n;i++){ const a=Math.random()*6.283, s=(0.25+Math.random()*0.75)*spd;
+    particles.push({x:x,y:y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0.4+Math.random()*0.5,r:1.2+Math.random()*2.2,c:rgb}); }
+}
+
+// ---------- update ----------
+function update(dt){
+  for(const p of particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=0.95; p.vy*=0.95; p.life-=dt; }
+  particles=particles.filter(p=>p.life>0);
+  for(const f of floaters){ f.y-=18*dt; f.life-=dt; }
+  floaters=floaters.filter(f=>f.life>0);
+  if(shakeT>0) shakeT-=dt; if(flashAll>0) flashAll-=dt; if(lostFlash>0) lostFlash-=dt;
+  for(let i=0;i<N;i++) if(flashT[i]>0) flashT[i]-=dt;
+  if(mode==='dying'){ dyingT-=dt; if(dyingT<=0){ mode='over'; overT=0; } return; }
+  if(mode==='over'){ overT+=dt; return; }
+  if(mode!=='play' || !started) return;
+  gt+=dt;
+  // you
+  P.acc+=dt*PSPEED;
+  while(P.acc>=1 && mode==='play'){ P.acc-=1; if(!playerStep()){ P.acc=0; break; } }
+  if(mode!=='play') return;
+  if(P.trail.length){
+    const rem=decayTime()-(gt-ptrail[P.trail[0]]);
+    if(rem<=0) loseTrail();
+    else if(rem<1.6){ tickT-=dt; if(tickT<=0){ tickT=rem<0.7?0.12:0.22; sfxTick(rem<0.7); } }
+  }
+  // rivals
+  const sp=enemySpeed();
+  for(const e of enemies){
+    if(!e.alive){ e.respawn-=dt; continue; }
+    if(e.spawnT>0){ e.spawnT-=dt; continue; }
+    e.acc+=dt*sp;
+    while(e.acc>=1 && mode==='play' && e.alive){ e.acc-=1; enemyStep(e); }
+  }
+  if(mode!=='play') return;
+  const live=enemies.filter(e=>e.alive).length;
+  if(live<enemyTarget()){
+    for(const e of enemies){ if(!e.alive && e.respawn<=0){ spawnEnemy(e); break; } }
+  }
+  computeThreats();
+  threatCd-=dt;
+  if(threats.length && threatCd<=0 && threats.some(t=>t.dist<=3)){ threatCd=0.35; sfxThreat(); }
+}
+
+// ---------- input ----------
+let anchor=null;
+function press(x,y){
+  audio(); if(AC && AC.state==='suspended' && !muted) AC.resume();
+  if(mode==='menu'){ startGame(); anchor={x:x,y:y}; return; }
+  if(mode==='over'){ if(overT>0.8) { startGame(); anchor={x:x,y:y}; } return; }
+  if(mode==='play') anchor={x:x,y:y};
+}
+function steer(dx,dy){
+  const d=Math.abs(dx)>Math.abs(dy)?(dx>0?DIRS[1]:DIRS[3]):(dy>0?DIRS[2]:DIRS[0]);
+  if(!started){ started=true; P.dir=null; }
+  if(!P.dir && !queue.length){ P.dir=d; sfxTurn(); return; }
+  queueDir(d);
+}
+cv.addEventListener('pointerdown', e=>{ e.preventDefault(); press(e.clientX,e.clientY); });
+cv.addEventListener('pointermove', e=>{
+  if(!anchor || mode!=='play') return;
+  const dx=e.clientX-anchor.x, dy=e.clientY-anchor.y;
+  if(Math.hypot(dx,dy)<14) return;
+  steer(dx,dy); anchor={x:e.clientX,y:e.clientY};
+});
+addEventListener('pointerup', ()=>{ anchor=null; });
+addEventListener('pointercancel', ()=>{ anchor=null; });
+addEventListener('keydown', e=>{
+  const k=e.key.toLowerCase();
+  if(k===' '||k==='enter'){ e.preventDefault(); if(mode==='menu'||(mode==='over'&&overT>0.8)){ audio(); startGame(); } return; }
+  const map={arrowup:0,w:0,arrowright:1,d:1,arrowdown:2,s:2,arrowleft:3,a:3};
+  if(k in map){ e.preventDefault(); if(mode==='play'){ const d=DIRS[map[k]]; if(!started){ started=true; P.dir=d; sfxTurn(); } else queueDir(d); } }
+});
+
+// ---------- render ----------
+const CY='34,230,255', MG='255,61,150';
+function cx(x){ return GX+(x+.5)*CELL; }
+function cy(y){ return FY+(y+.5)*CELL; }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function fitFont(text,base,maxW,weight){ ctx.font=`${weight||700} ${base}px system-ui,sans-serif`;
+  const w=ctx.measureText(text).width; return w>maxW?base*(maxW/w):base; }
+function kind(o){ return o===1?1:o>=2?2:0; }
+
+function drawLand(){
+  const t=performance.now()/1000;
+  // fills
+  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+    const o=owner[idx(x,y)]; if(!o) continue;
+    ctx.fillStyle=o===1?`rgba(${CY},0.20)`:`rgba(${MG},0.17)`;
+    ctx.fillRect(GX+x*CELL,FY+y*CELL,CELL,CELL);
+  }
+  // fresh-claim flash
+  for(let i=0;i<N;i++) if(flashT[i]>0){ const x=i%COLS,y=(i/COLS)|0;
+    ctx.fillStyle=`rgba(255,255,255,${Math.min(0.55,flashT[i]*0.9)})`; ctx.fillRect(GX+x*CELL,FY+y*CELL,CELL,CELL); }
+  // glowing borders
+  for(const k of [2,1]){
+    ctx.save();
+    ctx.strokeStyle=k===1?`rgba(${CY},0.95)`:`rgba(${MG},0.9)`;
+    ctx.shadowColor=k===1?`rgb(${CY})`:`rgb(${MG})`; ctx.shadowBlur=10; ctx.lineWidth=2; ctx.lineCap='round';
+    ctx.beginPath();
+    for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+      if(kind(owner[idx(x,y)])!==k) continue;
+      const l=GX+x*CELL, tp=FY+y*CELL;
+      const edge=(nx,ny)=> inB(nx,ny) && kind(owner[idx(nx,ny)])!==k;
+      if(edge(x,y-1)){ ctx.moveTo(l,tp); ctx.lineTo(l+CELL,tp); }
+      if(edge(x,y+1)){ ctx.moveTo(l,tp+CELL); ctx.lineTo(l+CELL,tp+CELL); }
+      if(edge(x-1,y)){ ctx.moveTo(l,tp); ctx.lineTo(l,tp+CELL); }
+      if(edge(x+1,y)){ ctx.moveTo(l+CELL,tp); ctx.lineTo(l+CELL,tp+CELL); }
+    }
+    ctx.stroke(); ctx.restore();
+  }
+}
+function drawField(){
+  ctx.fillStyle='#0a1024'; ctx.fillRect(GX,FY,GW,CELL*ROWS);
+  ctx.strokeStyle='rgba(130,160,255,0.07)'; ctx.lineWidth=1; ctx.beginPath();
+  for(let i=1;i<COLS;i++){ ctx.moveTo(GX+i*CELL+.5,FY); ctx.lineTo(GX+i*CELL+.5,FY+CELL*ROWS); }
+  for(let j=1;j<ROWS;j++){ ctx.moveTo(GX,FY+j*CELL+.5); ctx.lineTo(GX+GW,FY+j*CELL+.5); }
+  ctx.stroke();
+  ctx.strokeStyle='rgba(150,175,255,0.4)'; ctx.lineWidth=2; ctx.strokeRect(GX-1,FY-1,GW+2,CELL*ROWS+2);
+}
+function headPos(ent){ const t=Math.min(1,ent.acc); return {x:lerp(ent.px,ent.x,t), y:lerp(ent.py,ent.y,t)}; }
+const BGRGB=[10,16,36];
+function mixRGB(rgb,a){ const c=rgb.split(',').map(Number); return BGRGB.map((b,i)=>Math.round(b+(c[i]-b)*a)).join(','); }
+function strokeTrail(list, head, alphaOf, widthOf, rgb, glow){
+  const n=list.length; if(!n) return;
+  const pts=list.map(i=>({x:cx(i%COLS),y:cy((i/COLS)|0)}));
+  if(head) pts[n-1]={x:cx(head.x),y:cy(head.y)};
+  ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
+  for(let k=0;k<n;k++){
+    const a=alphaOf(k), w=widthOf(k);
+    const p1=pts[k], p0=k>0?pts[k-1]:null;
+    const col=a>=1?rgb:mixRGB(rgb,a);
+    if(!p0){ ctx.fillStyle=`rgb(${col})`; ctx.shadowColor=`rgb(${col})`; ctx.shadowBlur=glow&&a>0.5?8:0;
+      ctx.beginPath(); ctx.arc(p1.x,p1.y,w/2,0,6.29); ctx.fill(); continue; }
+    ctx.strokeStyle=`rgb(${col})`; ctx.shadowColor=`rgb(${col})`; ctx.shadowBlur=glow&&a>0.5?10:0;
+    ctx.lineWidth=w; ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawPlayerTrail(){
+  const D=decayTime(), n=P.trail.length; if(!n) return;
+  const flick=(performance.now()%200)<100;
+  strokeTrail(P.trail, headPos(P),
+    k=>{ const rem=Math.max(0,1-(gt-ptrail[P.trail[k]])/D);
+         let a=0.12+0.88*rem; if(rem<0.22 && flick) a*=0.45; return a; },
+    k=>{ const rem=Math.max(0,1-(gt-ptrail[P.trail[k]])/D); return CELL*(0.22+0.34*rem); },
+    '150,250,255', true);
+}
+function drawEnemy(e){
+  const h=headPos(e), x=cx(h.x), y=cy(h.y), s=CELL*0.82;
+  if(e.trail.length) strokeTrail(e.trail, h, ()=>1, ()=>CELL*0.5, '255,106,74', true);
+  ctx.save();
+  if(e.spawnT>0){   // materialising: harmless, drawn as a pulsing outline
+    const p=0.5+0.5*Math.sin(performance.now()/90);
+    ctx.strokeStyle=`rgba(${MG},${0.4+0.5*p})`; ctx.setLineDash([4,3]); ctx.lineWidth=2;
+    ctx.strokeRect(x-s/2,y-s/2,s,s); ctx.restore(); return;
+  }
+  ctx.shadowColor=`rgb(${MG})`; ctx.shadowBlur=14;
+  ctx.fillStyle=`rgb(${MG})`; ctx.fillRect(x-s/2,y-s/2,s,s);
+  ctx.shadowBlur=0; ctx.fillStyle='#ffd0e6';
+  ctx.fillRect(x-s*0.2,y-s*0.2,s*0.4,s*0.4);
+  // heading notch
+  ctx.fillStyle='#fff';
+  const d=e.dir, nx=x+d.x*s*0.62, ny=y+d.y*s*0.62;
+  ctx.beginPath(); ctx.moveTo(nx+d.x*CELL*0.28,ny+d.y*CELL*0.28);
+  ctx.lineTo(nx-d.y*CELL*0.22,ny+d.x*CELL*0.22); ctx.lineTo(nx+d.y*CELL*0.22,ny-d.x*CELL*0.22); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawPlayer(){
+  const h=headPos(P), x=cx(h.x), y=cy(h.y), s=CELL*0.84;
+  ctx.save();
+  ctx.shadowColor=`rgb(${CY})`; ctx.shadowBlur=16;
+  ctx.fillStyle='#e9fdff'; ctx.fillRect(x-s/2,y-s/2,s,s);
+  ctx.shadowBlur=0; ctx.fillStyle=`rgb(${CY})`; ctx.fillRect(x-s*0.28,y-s*0.28,s*0.56,s*0.56);
+  ctx.restore();
+  // fuse ring: how long until the oldest part of the trail burns out
+  if(P.trail.length && mode!=='over'){
+    const D=decayTime(), rem=Math.max(0,Math.min(1,1-(gt-ptrail[P.trail[0]])/D));
+    const col=rem>0.5?'150,250,255':rem>0.25?'255,200,90':'255,80,80';
+    const pulse=rem<0.25?(0.6+0.4*Math.sin(performance.now()/60)):1;
+    ctx.save(); ctx.lineWidth=3; ctx.lineCap='round';
+    ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.beginPath(); ctx.arc(x,y,CELL*0.95,0,6.283); ctx.stroke();
+    ctx.strokeStyle=`rgba(${col},${pulse})`; ctx.shadowColor=`rgb(${col})`; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(x,y,CELL*0.95,-Math.PI/2,-Math.PI/2+6.283*rem); ctx.stroke();
+    ctx.restore();
+  }
+}
+function drawThreats(){
+  const t=performance.now()/1000;
+  for(const th of threats){
+    const e=th.e, ex=cx(e.x), ey=cy(e.y), tx=cx(th.tx), ty=cy(th.ty);
+    const urgency=th.dist<=3?1:0.6, p=0.5+0.5*Math.sin(t*(th.dist<=3?18:9));
+    ctx.save(); ctx.strokeStyle=`rgba(255,70,90,${(0.7+0.3*p)*urgency})`; ctx.lineWidth=3; ctx.setLineDash([5,4]);
+    ctx.lineDashOffset=-t*30; ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(tx,ty); ctx.stroke();
+    ctx.setLineDash([]); ctx.strokeRect(tx-CELL*0.5-2,ty-CELL*0.5-2,CELL+4,CELL+4);
+    ctx.restore();
+  }
+}
+function drawHUD(){
+  ctx.textAlign='center';
+  const txt=pct.toFixed(1)+'%';
+  const fs=fitFont('100.0%',54,GW*0.5,800); ctx.font=`800 ${fs}px system-ui,sans-serif`;
+  ctx.save(); ctx.shadowColor=`rgba(${CY},0.7)`; ctx.shadowBlur=12; ctx.fillStyle='rgba(240,253,255,0.95)';
+  ctx.fillText(txt,W/2,58); ctx.restore();
+  ctx.fillStyle='rgba(200,215,255,0.5)'; ctx.font='600 13px system-ui,sans-serif';
+  ctx.fillText('BEST '+best.toFixed(1)+'%',W/2,80);
+}
+function drawMenu(){
+  const t=performance.now()/1000, mx=W/2;
+  ctx.textAlign='center';
+  const ts=fitFont('TERRITORY',50,GW*0.92,800); ctx.font=`800 ${ts}px system-ui,sans-serif`;
+  const g=ctx.createLinearGradient(mx-GW/2,0,mx+GW/2,0); g.addColorStop(0,'#22e6ff'); g.addColorStop(1,'#ff3d96');
+  ctx.save(); ctx.fillStyle=g; ctx.shadowColor='#22e6ff'; ctx.shadowBlur=22; ctx.fillText('TERRITORY',mx,H*0.15); ctx.restore();
+  const l1='Leave your land. Close the loop.', l2='Your trail fades. Get home first.';
+  ctx.font=`500 ${fitFont(l1,17,GW*0.9,500)}px system-ui,sans-serif`; ctx.fillStyle='rgba(225,232,255,0.88)'; ctx.fillText(l1,mx,H*0.15+34);
+  ctx.font=`500 ${fitFont(l2,15,GW*0.9,500)}px system-ui,sans-serif`; ctx.fillStyle='rgba(225,232,255,0.5)'; ctx.fillText(l2,mx,H*0.15+58);
+  if(best>0){ ctx.fillStyle='rgba(255,209,102,0.9)'; ctx.font='700 16px system-ui,sans-serif'; ctx.fillText('BEST '+best.toFixed(1)+'%',mx,H*0.15+90); }
+  // looping demo: a square leaves its land, the trail dims, it closes the loop and claims
+  const u=Math.min(CELL*1.3,26), cxm=mx, cym=H*0.5;
+  const L=u*5, Ht=u*4;               // loop rectangle (below the land edge)
+  const land={x:cxm-L/2-u*0.5, y:cym+Ht/2, w:L+u, h:u*2};
+  const per=2*(L+Ht), T=6, ph=(t%T)/T;     // 0..1
+  ctx.save();
+  ctx.fillStyle=`rgba(${CY},0.2)`; ctx.fillRect(land.x,land.y,land.w,land.h);
+  ctx.strokeStyle=`rgba(${CY},0.95)`; ctx.shadowColor=`rgb(${CY})`; ctx.shadowBlur=10; ctx.lineWidth=2;
+  ctx.strokeRect(land.x,land.y,land.w,land.h);
+  const run=Math.min(1,ph/0.7);                         // travelling part of the cycle
+  const dist=run*per*0.92;
+  // path: from bottom-left of loop up, across, down, back (rectangle above the land)
+  const x0=cxm-L/2, x1=cxm+L/2, y0=cym-Ht/2, y1=cym+Ht/2;
+  const poly=[[x0,y1],[x0,y0],[x1,y0],[x1,y1]];
+  const segs=[]; let tot=0; for(let i=0;i<3;i++){ const a=poly[i],b=poly[i+1],l=Math.hypot(b[0]-a[0],b[1]-a[1]); segs.push([a,b,l]); tot+=l; }
+  const at=d=>{ d=Math.max(0,Math.min(tot,d)); for(const s of segs){ if(d<=s[2]){ const f=d/s[2]; return [lerp(s[0][0],s[1][0],f),lerp(s[0][1],s[1][1],f)]; } d-=s[2]; } return poly[3]; };
+  const d0=Math.min(tot,run*tot*1.0);
+  const fade=3.6/T*tot/ (0.7);              // trail length visible before it fades
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  const steps=60;
+  if(ph<0.7){
+    for(let i=0;i<steps;i++){ const a=d0-(i/steps)*d0, b=d0-((i+1)/steps)*d0;
+      const p=at(a),q=at(b), age=i/steps; ctx.shadowBlur=8; ctx.shadowColor='rgba(150,250,255,.7)';
+      ctx.strokeStyle=`rgba(150,250,255,${Math.max(0.1,1-age*1.0)})`; ctx.lineWidth=u*(0.55-0.3*age);
+      ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(q[0],q[1]); ctx.stroke(); }
+    const hp=at(d0);
+    ctx.shadowColor=`rgb(${CY})`; ctx.shadowBlur=14; ctx.fillStyle='#e9fdff'; ctx.fillRect(hp[0]-u*0.4,hp[1]-u*0.4,u*0.8,u*0.8);
+    ctx.fillStyle=`rgb(${CY})`; ctx.fillRect(hp[0]-u*0.22,hp[1]-u*0.22,u*0.44,u*0.44);
+    ctx.shadowBlur=6; ctx.lineWidth=3; ctx.strokeStyle='rgba(150,250,255,.9)';
+    ctx.beginPath(); ctx.arc(hp[0],hp[1],u*0.95,-Math.PI/2,-Math.PI/2+6.283*(1-run*0.55)); ctx.stroke();
+  } else {
+    const f=(ph-0.7)/0.3, a=Math.sin(Math.min(1,f*1.4)*Math.PI)*0.9;
+    ctx.fillStyle=`rgba(${CY},${0.2+0.12*(1-f)})`; ctx.fillRect(x0,y0,L,y1-y0+u*2);
+    ctx.fillStyle=`rgba(255,255,255,${a*0.35})`; ctx.fillRect(x0,y0,L,y1-y0+u*2);
+    ctx.strokeStyle=`rgba(${CY},0.95)`; ctx.strokeRect(x0,y0,L,y1-y0+u*2);
+  }
+  ctx.restore();
+  const p=0.5+0.5*Math.sin(t*4);
+  ctx.textAlign='center';
+  const py=Math.max(H*0.78,cym+Ht/2+u*2+70);
+  ctx.fillStyle=`rgba(255,255,255,${0.4+0.45*p})`;
+  ctx.font=`700 ${fitFont('SWIPE TO STEER',20,GW*0.8,700)}px system-ui,sans-serif`; ctx.fillText('SWIPE TO STEER',mx,py);
+  ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='600 16px system-ui,sans-serif'; ctx.fillText('TAP TO START',mx,py+28);
+}
+function drawOver(){
+  const mx=W/2;
+  ctx.fillStyle='rgba(4,6,18,0.5)'; ctx.fillRect(-30,-30,W+60,H+60);
+  ctx.textAlign='center'; ctx.fillStyle='#ff5d73';
+  const ts=fitFont('CUT OFF',50,GW*0.85,800); ctx.font=`800 ${ts}px system-ui,sans-serif`;
+  ctx.save(); ctx.shadowColor='#ff5d73'; ctx.shadowBlur=22; ctx.fillText('CUT OFF',mx,H*0.34); ctx.restore();
+  ctx.fillStyle='#eef1ff'; const sc=pct.toFixed(1)+'%';
+  ctx.font=`800 ${fitFont(sc,72,GW*0.7,800)}px system-ui,sans-serif`; ctx.fillText(sc,mx,H*0.34+82);
+  ctx.fillStyle='rgba(210,220,255,0.65)'; ctx.font='600 15px system-ui,sans-serif';
+  ctx.fillText('OF THE FIELD IS YOURS',mx,H*0.34+108);
+  ctx.fillStyle=newBest?'#ffd166':'rgba(210,220,255,0.6)'; ctx.font='700 16px system-ui,sans-serif';
+  ctx.fillText('BEST '+best.toFixed(1)+'%'+(newBest?'  -  NEW BEST':''),mx,H*0.34+138);
+  if(overT>0.8){ const p=0.5+0.5*Math.sin(performance.now()/350);
+    ctx.fillStyle=`rgba(255,255,255,${0.35+0.4*p})`; ctx.font=`700 ${fitFont('TAP TO RETRY',19,GW*0.7,700)}px system-ui,sans-serif`;
+    ctx.fillText('TAP TO RETRY',mx,H*0.64); }
+}
+function draw(){
+  ctx.save();
+  if(shakeT>0){ const s=shakeT*18; ctx.translate((Math.random()-.5)*s,(Math.random()-.5)*s); }
+  ctx.fillStyle='#060a18'; ctx.fillRect(-30,-30,W+60,H+60);
+  if(mode==='menu'){ drawMenu(); }
+  else {
+    drawField(); drawLand();
+    if(killer && hitCell>=0 && (mode==='dying'||mode==='over')){
+      const hx=hitCell%COLS, hy=(hitCell/COLS)|0, p=0.5+0.5*Math.sin(performance.now()/70);
+      ctx.save(); ctx.strokeStyle=`rgba(255,70,90,${0.5+0.5*p})`; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.arc(cx(hx),cy(hy),CELL*1.1+p*3,0,6.283); ctx.stroke();
+      ctx.restore();
+    }
+    drawPlayerTrail();
+    for(const e of enemies) if(e.alive) drawEnemy(e);
+    if(mode==='play') drawThreats();
+    if(mode!=='dying' && mode!=='over' || mode==='dying') drawPlayer();
+    drawHUD();
+    if(mode==='play' && !started){
+      const a=0.5+0.5*Math.sin(performance.now()/300);
+      ctx.textAlign='center'; ctx.fillStyle=`rgba(255,255,255,${0.45+0.5*a})`; ctx.font='700 18px system-ui,sans-serif';
+      ctx.fillText('SWIPE TO MOVE',W/2,cy(P.y)-CELL*3.2);
+    }
+    if(lostFlash>0){ ctx.fillStyle=`rgba(255,160,60,${lostFlash*0.18})`; ctx.fillRect(-30,-30,W+60,H+60); }
+    if(mode==='over') drawOver();
+  }
+  for(const p of particles){ ctx.globalAlpha=Math.max(0,Math.min(1,p.life*2.2)); ctx.fillStyle=`rgb(${p.c})`;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.29); ctx.fill(); }
+  ctx.globalAlpha=1; ctx.textAlign='center';
+  for(const f of floaters){ ctx.globalAlpha=Math.min(1,f.life*1.6);
+    ctx.font=`800 ${f.big?24:16}px system-ui,sans-serif`; ctx.fillStyle=f.c; ctx.fillText(f.text,f.x,f.y); }
+  ctx.globalAlpha=1;
+  if(flashAll>0){ ctx.fillStyle=`rgba(255,255,255,${flashAll*1.2})`; ctx.fillRect(-30,-30,W+60,H+60); }
+  ctx.restore();
+}
+
+// ---------- loop ----------
+let last=performance.now();
+function frame(now){
+  let dt=(now-last)/1000; last=now; dt=Math.min(dt,0.05);
+  update(dt); draw();
+  requestAnimationFrame(frame);
+}
+resize(); newGame(); mode='menu'; requestAnimationFrame(frame);
+
+// debug / test hooks
+window.__tr={ get mode(){return mode}, get pct(){return pct}, get best(){return best}, get started(){return started},
+  get P(){return P}, get enemies(){return enemies}, get owner(){return owner}, get ptrail(){return ptrail}, get etrail(){return etrail},
+  get COLS(){return COLS}, get ROWS(){return ROWS}, get CELL(){return CELL}, get GX(){return GX}, get FY(){return FY}, get GW(){return GW},
+  get gt(){return gt}, get threats(){return threats}, get muted(){return muted}, get killer(){return killer},
+  decayTime:decayTime, start:startGame, newGame:newGame,
+  placeEnemy(k,x,y,dx,dy){ const e=enemies[k]; for(const i of e.trail) etrail[i]=0; e.trail=[]; e.alive=true; e.spawnT=0; e.x=e.px=x; e.y=e.py=y;
+    e.dir={x:dx,y:dy}; e.d=e.dir; e.a=99; e.phase=0; e.needPlan=false; e.acc=0; e.respawn=0; },
+  freezeEnemies(){ for(const e of enemies){ e.alive=false; e.respawn=1e9; } },
+  setOwner(x,y,v){ owner[idx(x,y)]=v; countPct(); } };
+</script>
+</body>
+</html>
