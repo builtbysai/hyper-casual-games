@@ -1,7 +1,7 @@
 # Hyper-Casual Mega List
 
 Model-and-improve per Trey Smith's playbook. One-touch/swipe, portrait only.
-Working down in order. Done: 01-05, 07-14. 06 in progress.
+Working down in order. Done: 01-05, 07-15. 06 in progress.
 
 ## Done
 - 01 Stack Twist (Stack) — wind gusts, real 3D
@@ -22,20 +22,21 @@ Working down in order. Done: 01-05, 07-14. 06 in progress.
 - 12 Territory (Paper.io) — DONE 2026-11-06 — your trail decays, reclaim it before it fades
 - 13 Neon Crossing (Crossy Road) — DONE 2026-11-07 — time dilates near traffic
 - 14 Rooftop Rush (Rooftop Reset) — DONE 2026-11-07 — endless procedural tower, jump + air dash, flag checkpoints
-- 15 Pulse (Geometry Dash) — obstacles pulse to the beat, jump on the drop
-- 16 Merge Fall (2048) — tiles fall with physics, merge on impact
-- 17 Gravity Blocks (Tetris) — rotate the whole well, not the pieces
-- 18 Neon Breaker (Breakout) — ball splits into two on every 5th hit
-- 19 Warp Pong (Pong) — paddles blink-teleport on double-tap
-- 20 Drift (Asteroids) — no brakes, only thrust and turn
-- 21 Neon Maze (Pac-Man) — the maze itself rotates slowly
-- 22 Hop (Frogger) — logs sink the longer you ride them
-- 23 Swarm (Space Invaders) — invaders merge into armored heavies
-- 24 Dual (Galaga) — let yourself get captured to dual-wield
-- 25 Climb (Donkey Kong) — barrels obey gravity, bounce off girders
-- 26 Wall Run (auto-runner) — wall-jump between skyscrapers
-- 27 Loop Dash (Sonic) — momentum only, nail loop-de-loops for boost
-- 28 Neon Run (Temple Run) — lane-swap plus jump/slide, no tilt
-- 29 Metro (Subway Surfers) — trains come AT you, not past you
-- 30 Thrust (Jetpack Joyride) — fuel is life, ceiling is lava
-- 31 Zen Garden (match-3) — rake patterns, no timers, pure flow
+- 15 Skyline Sprint (auto-run platformer) — DONE 2026-11-07 — auto-run, tap to jump, double-tap to dash, 5 hand-designed levels, midnight neon city
+- 16 Pulse (Geometry Dash) — obstacles pulse to the beat, jump on the drop
+- 17 Merge Fall (2048) — tiles fall with physics, merge on impact
+- 18 Gravity Blocks (Tetris) — rotate the whole well, not the pieces
+- 19 Neon Breaker (Breakout) — ball splits into two on every 5th hit
+- 20 Warp Pong (Pong) — paddles blink-teleport on double-tap
+- 21 Drift (Asteroids) — no brakes, only thrust and turn
+- 22 Neon Maze (Pac-Man) — the maze itself rotates slowly
+- 23 Hop (Frogger) — logs sink the longer you ride them
+- 24 Swarm (Space Invaders) — invaders merge into armored heavies
+- 25 Dual (Galaga) — let yourself get captured to dual-wield
+- 26 Climb (Donkey Kong) — barrels obey gravity, bounce off girders
+- 27 Wall Run (auto-runner) — wall-jump between skyscrapers
+- 28 Loop Dash (Sonic) — momentum only, nail loop-de-loops for boost
+- 29 Neon Run (Temple Run) — lane-swap plus jump/slide, no tilt
+- 30 Metro (Subway Surfers) — trains come AT you, not past you
+- 31 Thrust (Jetpack Joyride) — fuel is life, ceiling is lava
+- 32 Zen Garden (match-3) — rake patterns, no timers, pure flow
