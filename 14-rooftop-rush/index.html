@@ -62,7 +62,7 @@
 <body>
 <div id="wrap">
   <canvas id="cv"></canvas>
-  <div class="hud">
+  <div class="hud" id="hud">
     <div class="left">
       <div class="h"><span id="height">0</span><small> m</small></div>
       <div class="sub"><span id="floorName">BASEMENT</span> &middot; <span id="timer">0:00</span></div>
@@ -286,6 +286,8 @@ function spawn(){
   lifeHigh=L.y; deadT=0;
   ledges.forEach(l=>{ if(l.type==='crumble') l.crumbleT=-1; });
   camY=Math.max(0,p.y-200);
+  const viewW=W/SCALE;
+  camX=viewW>=WORLD_W?0:clamp(p.x-viewW/2,0,WORLD_W-viewW);
 }
 function ensureLedges(upToY){
   while(ledges.length===0 || ledges[ledges.length-1].y < upToY){
@@ -330,6 +332,7 @@ function die(){
 }
 function gameOver(){
   state='over';
+  syncChrome();
   const h=Math.floor(maxY/20);
   if(h>best){ best=h; bestDeaths=deaths; persistBest(); }
   $('finalH').textContent=h; $('finalDeaths').textContent=deaths;
@@ -499,8 +502,12 @@ function step(dt){
   }
   // camera
   const visH=viewH();
-  camY=lerp(camY, Math.max(-120, p.y-visH*0.55), 1-Math.pow(0.001,dt));
+  camY=lerp(camY, Math.max(-200, p.y-visH*0.55), 1-Math.pow(0.001,dt));
   if(p.y<camY-60) camY=p.y-60;
+  // horizontal follow when the view is narrower than the tower
+  const viewW=W/SCALE;
+  const camXT=viewW>=WORLD_W?0:clamp(p.x-viewW/2,0,WORLD_W-viewW);
+  camX=lerp(camX,camXT,1-Math.pow(0.001,dt));
 }
 function showFloorFlash(t){ floorFlashEl.textContent=t; floorFlashEl.classList.add('show'); setTimeout(()=>floorFlashEl.classList.remove('show'),1600); }
 function showToast(t){ toastEl.textContent=t; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'),1500); }
@@ -526,11 +533,14 @@ function burst(x,y,color,n){ for(let i=0;i<n;i++) particles.push({x,y,vx:(Math.r
 function dust(x,y){ for(let i=0;i<5;i++) particles.push({x:x+(Math.random()-0.5)*14,y:y+2,vx:(Math.random()-0.5)*50,vy:10+Math.random()*30,life:0.3,t:0,color:'#9aa0b5',size:2}); }
 
 // ---------- rendering ----------
-let W=0,H=0,DPR=1,SCALE=1,OFFX=0;
+let W=0,H=0,DPR=1,SCALE=1,OFFX=0,camX=0;
 function resize(){
   DPR=Math.min(2,window.devicePixelRatio||1);
   W=cv.clientWidth; H=cv.clientHeight;
   cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  // Zoom in on narrow screens: show a slice of the 480-wide tower, not the
+  // whole width, so the climber stays big and readable on a phone.
+  SCALE=Math.min(Math.max(W/300,1.3),1.9);
 }
 addEventListener('resize',resize);
 function viewH(){ return H/SCALE; }
@@ -542,13 +552,13 @@ function draw(){
   const g=ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,pal.sky); g.addColorStop(1,'#0c0812');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  SCALE=Math.min(W/WORLD_W,1.6); OFFX=(W-WORLD_W*SCALE)/2;
   const visH=H/SCALE;
-  const camX=0;
+  const viewW=W/SCALE;
+  OFFX=viewW>=WORLD_W?(W-WORLD_W*SCALE)/2:0;
   const shx=shakeT>0?(Math.random()-0.5)*8*shakeT/0.3:0;
   const shy=shakeT>0?(Math.random()-0.5)*8*shakeT/0.3:0;
   ctx.save();
-  ctx.translate(OFFX+shx,shy);
+  ctx.translate(OFFX-camX*SCALE+shx,shy);
   ctx.scale(SCALE,SCALE);
   const camBottom=camY;
   const toY=wy=>visH-(wy-camBottom);
@@ -571,11 +581,11 @@ function draw(){
       ctx.fillStyle='#5b7290';
       ctx.fillRect(wx+2,toY(ry+11),10,7); ctx.fillRect(wx+14,toY(ry+11),10,7);
       ctx.fillStyle='#232c3d'; ctx.fillRect(wx+12,toY(ry+13),2,11);
-    } else if(r1<0.26){
+    } else if(r1<0.34){
       const lx=24+brickSeed(floorIdx,ry+11)*430;
       ctx.fillStyle='#3a2c1c'; ctx.fillRect(lx-3,toY(ry+12),6,5);
       ctx.fillStyle=pal.lamp; ctx.beginPath(); ctx.arc(lx+0,toY(ry+9),3.2,0,7); ctx.fill();
-      ctx.fillStyle='rgba(255,179,71,0.13)'; ctx.beginPath(); ctx.arc(lx,toY(ry+9),11,0,7); ctx.fill();
+      ctx.fillStyle='rgba(255,179,71,0.22)'; ctx.beginPath(); ctx.arc(lx,toY(ry+9),16,0,7); ctx.fill();
     }
   }
   // side pipes
@@ -620,22 +630,22 @@ function draw(){
     ctx.save(); ctx.translate(wob,sinking);
     // grate slab
     ctx.fillStyle=L.type==='crumble'?'#5a3a26':'#2c2f3d';
-    ctx.fillRect(lx,ly,L.w,10);
+    ctx.fillRect(lx,ly,L.w,12);
     ctx.fillStyle=L.type==='crumble'?'#8a5a35':'#c8ccd8';
-    ctx.fillRect(lx,ly,L.w,3.5);
+    ctx.fillRect(lx,ly,L.w,4.5);
     ctx.fillStyle='rgba(0,0,0,0.35)';
-    for(let gx=lx+5;gx<lx+L.w-3;gx+=9) ctx.fillRect(gx,ly+4,2,5);
+    for(let gx=lx+5;gx<lx+L.w-3;gx+=9) ctx.fillRect(gx,ly+5,2,5);
     ctx.fillStyle='#9aa0b5';
     ctx.fillRect(lx+2,ly+1,2,2); ctx.fillRect(lx+L.w-4,ly+1,2,2);
-    if(L.type==='move'){ ctx.fillStyle='#3a3f55'; ctx.fillRect(lx,ly+10,L.w,2); }
+    if(L.type==='move'){ ctx.fillStyle='#3a3f55'; ctx.fillRect(lx,ly+12,L.w,2); }
     if(L.type==='crumble' && L.crumbleT>=0){
       ctx.strokeStyle='rgba(255,90,60,0.8)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(lx+L.w*0.3,ly); ctx.lineTo(lx+L.w*0.45,ly+8); ctx.moveTo(lx+L.w*0.6,ly); ctx.lineTo(lx+L.w*0.75,ly+8); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(lx+L.w*0.3,ly); ctx.lineTo(lx+L.w*0.45,ly+10); ctx.moveTo(lx+L.w*0.6,ly); ctx.lineTo(lx+L.w*0.75,ly+10); ctx.stroke();
     }
     // brackets
     ctx.fillStyle='#1c1f2a';
-    ctx.beginPath(); ctx.moveTo(lx+4,ly+10); ctx.lineTo(lx+10,ly+10); ctx.lineTo(lx+4,ly+16); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(lx+L.w-4,ly+10); ctx.lineTo(lx+L.w-10,ly+10); ctx.lineTo(lx+L.w-4,ly+16); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(lx+4,ly+12); ctx.lineTo(lx+10,ly+12); ctx.lineTo(lx+4,ly+18); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(lx+L.w-4,ly+12); ctx.lineTo(lx+L.w-10,ly+12); ctx.lineTo(lx+L.w-4,ly+18); ctx.closePath(); ctx.fill();
     // spike
     if(L.spike){
       const sx=lx+(L.spike.edge==='right'?L.w-L.spike.w:0);
@@ -712,6 +722,9 @@ function draw(){
     const bob=p.ground!==null&&Math.abs(p.vx)>20?Math.sin(worldTime*16)*1.2:0;
     const flash=deadT>0&&Math.floor(worldTime*20)%2===0;
     ctx.save(); ctx.translate(px,py);
+    // dark backing plate so the climber reads against the brick
+    ctx.fillStyle='rgba(8,6,14,0.5)';
+    ctx.fillRect(-7,-h-3,14,h+12);
     if(flash) ctx.globalAlpha=0.35;
     if(dashing){ ctx.scale(1.25,0.8); }
     const f=p.facing;
@@ -794,8 +807,13 @@ stickEl.addEventListener('pointerdown',e=>{
   const c=stickCenter(); stickCX=c.x; stickCY=c.y; stickMove(e);
 });
 stickEl.addEventListener('pointermove',e=>{ if(e.pointerId===stickId) stickMove(e); });
-function stickEnd(e){ if(e.pointerId===stickId){ stickId=null; input.axis=0; input.down=false; knobEl.style.transform=''; } }
+function stickEnd(e){ if(e.pointerId===stickId){ stickId=null; input.axis=0; input.down=false; input.left=false; input.right=false; knobEl.style.transform=''; } }
 stickEl.addEventListener('pointerup',stickEnd); stickEl.addEventListener('pointercancel',stickEnd);
+stickEl.addEventListener('lostpointercapture',stickEnd);
+// never leave a direction latched: clear all input when the page loses focus
+function clearInput(){ input.left=false; input.right=false; input.down=false; input.up=false; input.axis=0; input.jump=false; }
+addEventListener('blur',clearInput);
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) clearInput(); });
 function stickMove(e){
   const c=stickCenter();
   let dx=e.clientX-c.x, dy=e.clientY-c.y;
@@ -811,13 +829,22 @@ $('btnJump').addEventListener('pointerup',()=>releaseJump());
 $('btnJump').addEventListener('pointercancel',()=>releaseJump());
 $('btnJump').addEventListener('pointerleave',()=>releaseJump());
 $('btnDash').addEventListener('pointerdown',e=>{ e.preventDefault(); unlockAudio(); pressDash(); });
-if(('ontouchstart' in window)||navigator.maxTouchPoints>0) touchEl.classList.add('show');
+// HUD + touch controls belong to gameplay only: hide them behind the
+// title / game-over screens so they never bleed through the overlay.
+const touchCapable=('ontouchstart' in window)||navigator.maxTouchPoints>0;
+function syncChrome(){
+  const inGame=state==='play'||state==='pause';
+  $('hud').style.visibility=inGame?'visible':'hidden';
+  $('dashInd').style.visibility=inGame?'visible':'hidden';
+  touchEl.classList.toggle('show', inGame && touchCapable);
+}
 
 // ---------- states & buttons ----------
 function startGame(){
   unlockAudio(); sfx.click();
   newRun();
   state='play';
+  syncChrome();
   $('startScr').hidden=true; $('overScr').hidden=true; $('pauseScr').hidden=true;
   resize();
 }
@@ -828,12 +855,13 @@ function togglePause(){
 function pauseGame(){
   if(state!=='play') return;
   state='pause';
+  syncChrome();
   $('pauseInfo').textContent=Math.floor(maxY/20)+'m · '+deaths+' deaths · '+floorLabel(floorIdx);
   $('pauseScr').hidden=false;
 }
 function resumeGame(){
   if(state!=='pause') return;
-  state='play'; $('pauseScr').hidden=true; unlockAudio();
+  state='play'; $('pauseScr').hidden=true; unlockAudio(); syncChrome();
 }
 function toggleMute(){
   muted=!muted;
@@ -845,13 +873,13 @@ function toggleMute(){
 $('startBtn').addEventListener('click',startGame);
 $('howBtn').addEventListener('click',()=>{ const h=$('howText'); h.hidden=!h.hidden; });
 $('retryBtn').addEventListener('click',startGame);
-$('menuBtn').addEventListener('click',()=>{ $('overScr').hidden=true; state='title'; $('startScr').hidden=false; updateHUD(); });
+$('menuBtn').addEventListener('click',()=>{ $('overScr').hidden=true; state='title'; $('startScr').hidden=false; updateHUD(); syncChrome(); });
 $('resumeBtn').addEventListener('click',resumeGame);
 $('pauseBtn').addEventListener('click',()=>{ unlockAudio(); togglePause(); });
 $('muteBtn').addEventListener('click',toggleMute);
 $('soundBtn').addEventListener('click',toggleMute);
 $('fullBtn').addEventListener('click',()=>{ if(document.fullscreenElement) document.exitFullscreen().catch(()=>{}); else document.documentElement.requestFullscreen().catch(()=>{}); });
-$('retryFlagBtn').addEventListener('click',()=>{ $('pauseScr').hidden=true; state='play'; spawn(); });
+$('retryFlagBtn').addEventListener('click',()=>{ $('pauseScr').hidden=true; state='play'; spawn(); syncChrome(); });
 $('newClimbBtn').addEventListener('click',()=>{ $('pauseScr').hidden=true; startGame(); });
 if(muted){ $('muteBtn').textContent='✕'; $('soundBtn').textContent='SOUND OFF'; }
 
@@ -875,6 +903,7 @@ newRun(20261107); // attract-mode tower behind the title
 state='title';
 resize();
 updateHUD();
+syncChrome();
 requestAnimationFrame(frame);
 
 // ---------- debug hook ----------
