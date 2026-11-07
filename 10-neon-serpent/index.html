@@ -163,9 +163,31 @@ function reset(){
 function startGame(){ reset(); mode='play'; if(typeof aiOnStart==='function' && cfg.ai) aiOnStart(); }
 function toMenu(){ mode='menu'; reset(); }
 
+// Flood-fill from every snake head. Blocked: snake bodies (except each tail, which
+// vacates on the next move) and hazards. Wraps on all edges in wrap mode.
+function reachFromHeads(){
+  const out=[];
+  const blk=new Uint8Array(COLS*ROWS);
+  for(const s of snakes) for(let i=0;i<s.body.length-1;i++) blk[s.body[i].y*COLS+s.body[i].x]=1;
+  for(const h of hazards) blk[h.y*COLS+h.x]=1;
+  for(const s of snakes){
+    const seen=new Uint8Array(COLS*ROWS), h=s.body[0], q=[h.x,h.y]; seen[h.y*COLS+h.x]=1;
+    for(let qi=0;qi<q.length;qi+=2){
+      for(const d of [[1,0],[-1,0],[0,1],[0,-1]]){
+        let nx=q[qi]+d[0], ny=q[qi+1]+d[1];
+        if(cfg.wrap){ nx=(nx+COLS)%COLS; ny=(ny+ROWS)%ROWS; } else if(!inBounds(nx,ny)) continue;
+        const k=ny*COLS+nx; if(seen[k]||blk[k]) continue; seen[k]=1; q.push(nx,ny);
+      }
+    }
+    out.push(seen);
+  }
+  return out;
+}
+function reachableAny(R,x,y){ for(const r of R) if(r[y*COLS+x]) return true; return false; }
 function spawnFood(){ if(cfg.two) spawnFoodPair(); else spawnFoodOne(); }
 function spawnFoodOne(){
   // single fruit: any empty cell not right next to the head; relax if the board is crowded
+  const R1=reachFromHeads();
   for(const near of [3,0]){
     const cand=[];
     for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
@@ -173,7 +195,9 @@ function spawnFoodOne(){
       let ok=true; for(const s of snakes){ const h=s.body[0]; if(tdist(h.x,h.y,x,y)<near){ ok=false; break; } }
       if(ok) cand.push({x:x,y:y});
     }
-    if(cand.length){ const c=cand[Math.floor(Math.random()*cand.length)];
+    const rc=cand.filter(c=>reachableAny(R1,c.x,c.y));
+    const pool=rc.length?rc:cand;
+    if(pool.length){ const c=pool[Math.floor(Math.random()*pool.length)];
       foods=[ {x:c.x,y:c.y,ph:Math.random()*6.28} ]; return; }
   }
   foods=[]; die('board full');
@@ -189,6 +213,27 @@ function spawnFoodPair(){
         if(Math.abs(h.x-x)+Math.abs(h.y-y)<3 || Math.abs(h.x-mx)+Math.abs(h.y-y)<3){ near=true; break; } }
       if(near) continue;
       foods=[ {x:x,y:y,ph:Math.random()*6.28}, {x:mx,y:y,ph:Math.random()*6.28} ];
+      return;
+    }
+  }
+  // Prefer mirrored pairs where BOTH cells are reachable from a snake head (flood-fill).
+  {
+    const R=reachFromHeads(), rc=[];
+    for(const near of [3,0]){
+      for(let y=0;y<ROWS;y++) for(let x=0;x<=5;x++){
+        const mx=COLS-1-x;
+        if(occupied(x,y)||occupied(mx,y)) continue;
+        if(!reachableAny(R,x,y)||!reachableAny(R,mx,y)) continue;
+        let nr=false;
+        for(const s of snakes){ const h=s.body[0];
+          if(tdist(h.x,h.y,x,y)<near || tdist(h.x,h.y,mx,y)<near){ nr=true; break; } }
+        if(!nr) rc.push({x:x,y:y});
+      }
+      if(rc.length) break;
+    }
+    if(rc.length){
+      const c=rc[Math.floor(Math.random()*rc.length)], mx=COLS-1-c.x;
+      foods=[ {x:c.x,y:c.y,ph:Math.random()*6.28}, {x:mx,y:c.y,ph:Math.random()*6.28} ];
       return;
     }
   }
