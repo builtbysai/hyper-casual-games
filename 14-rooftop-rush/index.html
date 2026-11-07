@@ -3,52 +3,57 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#7ec8f7">
+<meta name="theme-color" content="#F6EDE5">
 <title>Rooftop Rush — endless climb</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{height:100%;overflow:hidden;background:#7ec8f7;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#e8ecff}
+  html,body{height:100%;overflow:hidden;background:#F6EDE5;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#2B2D5C}
   #wrap{position:fixed;inset:0;overflow:hidden}
-  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
-  .hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:calc(8px + env(safe-area-inset-top)) 12px 0;pointer-events:none;z-index:5}
+  #cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  .hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:calc(12px + env(safe-area-inset-top)) 12px 0;pointer-events:none;z-index:5}
   .hud .left{display:flex;flex-direction:column;gap:2px}
-  .hud .h{font-size:30px;font-weight:800;line-height:1;letter-spacing:.5px;text-shadow:0 2px 0 rgba(0,0,0,.45)}
-  .hud .h small{font-size:13px;font-weight:700;color:#ffd23f}
-  .hud .sub{font-size:12px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.55);letter-spacing:.5px}
-  .hud .sub .mult{color:#ffd23f;font-weight:900}
-  .hud .sub .mult.hot{color:#ff9a3c;text-shadow:0 0 8px rgba(255,154,60,.9)}
+  .hud .h{font-size:34px;font-weight:900;line-height:1.15;letter-spacing:.5px;color:#1A1A2E;text-shadow:0 0 8px rgba(246,237,229,.85),0 2px 0 rgba(246,237,229,.6)}
+  .hud .sub{font-size:13px;font-weight:800;color:#1A1A2E;text-shadow:0 0 6px rgba(246,237,229,.85);letter-spacing:.5px}
+  .hud .sub .mult{color:#8A6D00;font-weight:900}
+  .hud .sub .mult.hot{color:#E8443A}
   .hud .right{display:flex;gap:8px;align-items:center;pointer-events:auto}
-  .pill{background:rgba(10,10,18,.62);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:5px 10px;font-size:13px;font-weight:700;display:flex;gap:5px;align-items:center;color:#fff}
-  .hearts{font-size:15px;letter-spacing:2px;color:#ff5a7a;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+  .pill{background:#F7B731;border:2px solid #2B2D5C;border-radius:999px;padding:4px 10px;font-size:13px;font-weight:900;display:flex;gap:5px;align-items:center;color:#2B2D5C;box-shadow:0 2px 0 rgba(43,45,92,.4)}
+  .hearts{font-size:15px;letter-spacing:2px;color:#E8443A;text-shadow:0 0 6px rgba(246,237,229,.9)}
   .hearts .off{opacity:.25}
-  .iconbtn{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(10,10,18,.62);color:#fff;font-size:16px;font-weight:800;cursor:pointer}
-  /* overlays */
-  .overlay{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:rgba(8,10,24,.62);backdrop-filter:blur(2px);padding:20px}
+  .iconbtn{width:38px;height:38px;border-radius:50%;border:2px solid #2B2D5C;background:#F6EDE5;color:#2B2D5C;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 2px 0 rgba(43,45,92,.4)}
+  /* overlays: transparent — the painted tower shows through around the paper card */
+  .overlay{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:20px}
   .overlay[hidden]{display:none}
-  .card{width:min(340px,92vw);text-align:center}
-  .card h1{font-size:44px;font-weight:900;letter-spacing:1px;line-height:.95;color:#fff;text-shadow:0 3px 0 rgba(0,0,0,.25)}
-  .card h1 b{color:#ffb347}.card h1 span{color:#ff5a3c}
-  .card h2{font-size:30px;font-weight:900;letter-spacing:1px;color:#fff}
-  .card p{margin:12px 0;color:#dfe6ff;font-size:14px;line-height:1.5}
-  .card .best{font-size:13px;font-weight:800;color:#ffd23f;letter-spacing:1px}
-  .big{font-size:52px;font-weight:900;color:#ffb347;line-height:1;text-shadow:0 2px 0 rgba(0,0,0,.3)}
+  .card{width:min(340px,92vw);text-align:center;background:#F6EDE5;border:2.5px solid #2B2D5C;border-radius:20px 16px 22px 14px;box-shadow:0 8px 0 rgba(43,45,92,.25);padding:20px 18px;transform:rotate(-1deg)}
+  .card h1{font-size:44px;font-weight:900;letter-spacing:1px;line-height:.95;color:#2B2D5C}
+  .card h1 span{color:#E8443A}
+  .goldbar{width:62%;height:6px;background:#F7B731;border-radius:3px;margin:10px auto 2px;transform:rotate(-1.5deg)}
+  .card h2{font-size:30px;font-weight:900;letter-spacing:1px;color:#2B2D5C}
+  .card p{margin:12px 0;color:#4A4A6A;font-size:14px;line-height:1.5}
+  .card .best{font-size:13px;font-weight:800;color:#8A6D00;letter-spacing:1px}
+  .big{font-size:52px;font-weight:900;color:#2B2D5C;line-height:1}
   .stats{display:flex;justify-content:center;gap:22px;margin:14px 0}
-  .stats .v{font-size:26px;font-weight:800;color:#fff}.stats .k{font-size:11px;letter-spacing:1px;color:#b9c0e0;font-weight:700}
-  .btn{display:block;width:100%;padding:15px;border-radius:14px;border:0;font-size:17px;font-weight:800;cursor:pointer;margin-top:10px}
-  .btn.primary{background:#ffb347;color:#1a1206}
-  .btn.ghost{background:rgba(255,255,255,.14);color:#fff}
+  .stats .v{font-size:26px;font-weight:800;color:#2B2D5C}.stats .k{font-size:11px;letter-spacing:1px;color:#7A7A9A;font-weight:700}
+  .btn{display:block;width:100%;padding:15px;border-radius:14px;border:2.5px solid #2B2D5C;font-size:17px;font-weight:800;cursor:pointer;margin-top:10px;box-shadow:0 4px 0 rgba(43,45,92,.4)}
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(43,45,92,.4)}
+  .btn.primary{background:#F7B731;color:#2B2D5C}
+  .btn.ghost{background:transparent;color:#2B2D5C}
   .btnrow{display:flex;gap:10px}
   .btnrow .btn{margin-top:10px}
-  .hint{font-size:12px;color:#c8d2f0;margin-top:14px;line-height:1.6}
+  .hint{font-size:12px;color:#6A6A8A;margin-top:14px;line-height:1.6}
   .skins{display:flex;justify-content:center;gap:10px;margin:14px 0 2px}
-  .skin{width:64px;padding:8px 4px 6px;border-radius:12px;border:2px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;cursor:pointer;font-size:10px;font-weight:800;line-height:1.3}
-  .skin .dot{width:26px;height:26px;border-radius:50%;margin:0 auto 4px;border:2px solid rgba(0,0,0,.35)}
-  .skin.sel{border-color:#ffd23f;background:rgba(255,210,63,.18)}
+  .skin{width:64px;padding:6px 4px;border-radius:12px;border:2px solid #2B2D5C;background:#fff;color:#2B2D5C;cursor:pointer;font-size:10px;font-weight:800;line-height:1.3}
+  .skin canvas{display:block;margin:0 auto;width:44px;height:44px;position:static}
+  .skin span{display:block}
+  .skin.sel{border-color:#E8443A;background:#FFF3E0;box-shadow:0 0 0 2px #F7B731}
   .skin.locked{opacity:.55;cursor:default}
-  .floorflash{position:absolute;top:22%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;font-size:22px;font-weight:900;letter-spacing:3px;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.7);opacity:0;transition:opacity .3s}
+  .floorflash{position:absolute;top:22%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;font-size:24px;font-weight:900;letter-spacing:2px;color:#F7B731;text-shadow:0 3px 0 #2B2D5C,0 0 16px rgba(0,0,0,.4);opacity:0;transition:opacity .3s;transform:rotate(-2deg)}
   .floorflash.show{opacity:1}
-  .toast{position:absolute;top:16%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;font-size:15px;font-weight:800;color:#ffd23f;text-shadow:0 2px 8px rgba(0,0,0,.7);opacity:0;transition:opacity .25s}
+  .toast{position:absolute;top:16%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;opacity:0;transition:opacity .25s}
+  .toast span{display:inline-block;background:#F7B731;color:#2B2D5C;border:2px solid #2B2D5C;border-radius:999px;padding:4px 14px;font-size:14px;font-weight:900}
   .toast.show{opacity:1}
+  .mileword{position:absolute;top:30%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;font-size:46px;font-weight:900;letter-spacing:1px;color:#F7B731;text-shadow:0 3px 0 #2B2D5C,0 0 24px rgba(0,0,0,.35);opacity:0;transform:rotate(-3deg) scale(.8);transition:opacity .18s,transform .18s}
+  .mileword.show{opacity:1;transform:rotate(-3deg) scale(1.05)}
 </style>
 </head>
 <body>
@@ -61,18 +66,21 @@
       <div class="sub">Next: <span id="nextGoal">10m</span> +25 &nbsp;&middot;&nbsp; <span class="hearts" id="hearts">&#10084;&#10084;&#10084;</span></div>
     </div>
     <div class="right">
+      <span class="pill streak" id="streakPill" style="display:none">&#9733;<span id="streakN">0</span> &middot; &times;<span id="streakMult">1</span></span>
       <span class="pill">BEST <b id="best">0</b></span>
       <button class="iconbtn" id="muteBtn" aria-label="Sound">&#9834;</button>
       <button class="iconbtn" id="pauseBtn" aria-label="Pause">&#10074;&#10074;</button>
     </div>
   </div>
   <div class="floorflash" id="floorFlash"></div>
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast"><span></span></div>
+  <div class="mileword" id="mileWord"></div>
 
   <div class="overlay" id="startScr">
     <div class="card">
-      <h1><b>ROOFTOP</b><br><span>RUSH</span></h1>
-      <p>An endless sky tower. You bounce on your own — just steer. Grab stars, don't miss them, climb past every 10m.</p>
+      <h1>ROOFTOP<br><span>RUSH</span></h1>
+      <div class="goldbar"></div>
+      <p>Pip bounces on his own — you just steer. Grab stars, don't miss them, climb past every 10m.</p>
       <div class="best" id="startBest"></div>
       <div class="skins" id="skins"></div>
       <button class="btn primary" id="startBtn">TAP TO CLIMB</button>
@@ -117,17 +125,19 @@
 <script>
 'use strict';
 /* ============================================================
-   Rooftop Rush v2 — Bounce + Steer (Doodle Jump model).
-   Full rebuild 2026-11-07 (Hans scrapped v1): the climber
-   bounces on its own, you only steer — drag anywhere, or
-   arrows/A-D. Swipe down / Down = slam. No buttons, no
-   joystick, no latched direction (steering is positional:
-   release the finger and velocity decays to 0).
-   Bright sky tower: the sky shifts dawn→day→sunset→dusk→
-   night as you climb. Score = height + stars (5 pts, streak
-   multiplier ×1/×2/×3); +25 every 10m; unlockable climbers
-   at 25/50/100m. All code and art original — no extracted
-   assets or code reused.
+   Rooftop Rush v3 — asset rebuild (2026-11-07).
+   Hans rejected v2's look as slop: flat cream wall, orange
+   slab balconies, faceless climber, invisible sky. v3 is
+   "Sunset rooftop, painted in gouache" (ART-DIRECTION-v3.md):
+   a violet sunset sky you can actually see (the facade is
+   340 of the 480 world units, centered, with parallax
+   skylines on both sides), terracotta brick, color-coded
+   rooftops with wobbly ink outlines, and Pip — one round
+   red-hoodie blob with a big cream face looking UP.
+   ENGINE UNCHANGED from v2: Bounce + Steer (drag anywhere,
+   swipe down to slam, arrows/A-D), same physics, scoring,
+   streaks, milestones, unlocks, hazards, 3 lives + flag
+   respawn, same __rr hook. All code and art original.
    ============================================================ */
 
 // ---------- utils ----------
@@ -143,40 +153,55 @@ function hexLerp(c1,c2,t){
   const r=Math.round(lerp(a[0],b[0],t)), g=Math.round(lerp(a[1],b[1],t)), bb=Math.round(lerp(a[2],b[2],t));
   return `rgb(${r},${g},${bb})`;
 }
+// lighten/darken a hex colour by +/-f (f in -1..1), for the brick tile
+function shade(hex,f){
+  const a=parseRGB(hex);
+  const r=Math.round(clamp(a[0]+(f>0?255-a[0]:a[0])*f,0,255)),
+        g=Math.round(clamp(a[1]+(f>0?255-a[1]:a[1])*f,0,255)),
+        b=Math.round(clamp(a[2]+(f>0?255-a[2]:a[2])*f,0,255));
+  return `rgb(${r},${g},${b})`;
+}
 const WORLD_W=480, STEP=1/120;
+// the facade is 340 of the 480 world units, centered (70..410) —
+// the sky and skylines show on both sides. Ledges live on the facade.
+const FACADE_X=70, FACADE_W=340;
 // bounce physics: fixed bounce, 55px apex clears the 46px max ledge gap
 const GRAV=740, BOUNCE_V=285, MAX_FALL=-420, SLAM_GRAV=1410, SLAM_FALL=-490;
-const STEER_SPEED=230, STEER_ACCEL=2600, STEER_DECAY=1800; // 230: worst-case gap (70px edge gap, 46px rise = 0.54s airtime) needs >=211px/s to cross in one bounce from a respawn; v1's dash used to cover this
+const STEER_SPEED=230, STEER_ACCEL=2600, STEER_DECAY=1800; // 230: worst-case gap (70px edge gap, 46px rise = 0.54s airtime) needs >=211px/s to cross in one bounce from a respawn
 const FLOOR_SIZE=5; // ledges per floor
-const FLOORS=[
-  {name:'BASEMENT',     wall:'#f2d8a7', mortar:'#d9b380', ledge:'#e07840', ledgeTop:'#ffb347', trim:'#8a5a3b', sky:'#f7c489'},
-  {name:'BOILER ROOM',  wall:'#f6c9a0', mortar:'#dfa878', ledge:'#c65a3a', ledgeTop:'#ff8a5a', trim:'#7a4a30', sky:'#f7c489'},
-  {name:'SERVICE SHAFT',wall:'#f7e3c0', mortar:'#e0c69a', ledge:'#3f9e8a', ledgeTop:'#7fe3d0', trim:'#4a6a60', sky:'#aee3f7'},
-  {name:'MACHINE HALL', wall:'#f2d3b0', mortar:'#d8b58c', ledge:'#4a6a9e', ledgeTop:'#8fc2ff', trim:'#5a4a3a', sky:'#aee3f7'},
-  {name:'ANTENNA DECK', wall:'#efd3a8', mortar:'#d3b184', ledge:'#7b5cff', ledgeTop:'#b48cff', trim:'#5a4a6a', sky:'#f7b98a'},
-  {name:'ROOFTOP',      wall:'#f7dcb5', mortar:'#e2c193', ledge:'#e8b93c', ledgeTop:'#ffd23f', trim:'#6a5a3a', sky:'#f7b98a'},
-];
-// sky phases by height (metres): dawn -> day -> sunset -> dusk -> night
+const FLOOR_NAMES=['BASEMENT','BOILER ROOM','SERVICE SHAFT','MACHINE HALL','ANTENNA DECK','ROOFTOP'];
+// palette: 7 colours + derived tints. Danger red is reserved for hazards
+// (and Pip's hoodie) — nothing else is that red.
+const C={
+  indigo:'#2B2D5C', magenta:'#C36770', orange:'#F08A3C', gold:'#F7B731',
+  terra:'#A85B3F', sand:'#E8B04B', red:'#E8443A',
+  lavender:'#B9A8D6', purple:'#7B5EA7', slate:'#5E7A9C', dusty:'#C9A06A',
+  cream:'#F6EDE5', face:'#FFF3E0', sunlit:'#F7D774', sage:'#6A8A4A',
+  ink:'#1A1A2E', greyBlue:'#8FA3BC', mortar:'#96543C',
+};
+// sky phases by height (metres): dawn -> day -> sunset -> dusk -> night.
+// All phases are tints of the 7 palette colours.
 const SKY=[
-  {m:0,  top:'#ffd9a0', bot:'#ffb37a', sun:'#fff3c4', stars:0},
-  {m:15, top:'#7ec8f7', bot:'#cfeefb', sun:'#fffbe8', stars:0},
-  {m:40, top:'#ff9e7d', bot:'#ffc9a3', sun:'#ffdf8a', stars:0.15},
-  {m:65, top:'#6b5b9e', bot:'#c98bb0', sun:'#e8b8d0', stars:0.5},
-  {m:90, top:'#0b1030', bot:'#1d2b53', sun:'#e8ecff', stars:1},
+  {m:0,  top:'#e08a92', bot:'#f7c65c', stars:0},
+  {m:15, top:'#8f7fb8', bot:'#e8c9a0', stars:0},
+  {m:40, top:'#c36770', bot:'#f08a3c', stars:0.15},
+  {m:65, top:'#5a4a8a', bot:'#c36770', stars:0.5},
+  {m:90, top:'#1a1c40', bot:'#2b2d5c', stars:1},
 ];
 function skyAt(h){
   let i=0;
   while(i<SKY.length-2 && h>=SKY[i+1].m) i++;
   const a=SKY[i], b=SKY[i+1];
   const t=clamp((h-a.m)/Math.max(1,b.m-a.m),0,1);
-  return {top:hexLerp(a.top,b.top,t), bot:hexLerp(a.bot,b.bot,t), sun:a.sun, stars:lerp(a.stars,b.stars,t)};
+  return {top:hexLerp(a.top,b.top,t), bot:hexLerp(a.bot,b.bot,t), stars:lerp(a.stars,b.stars,t)};
 }
-// unlockable climbers: jacket / beanie / skin colours
+// unlockable climbers: the HOODIE ONLY changes colour — the silhouette
+// never changes, so Pip reads identically at every skin.
 const SKINS={
-  default:{name:'Teal',   jacket:'#1f8a7a', beanie:'#ff7a2f', skin:'#e8b88a', pants:'#23283a'},
-  sunset: {name:'Sunset', jacket:'#ff7a2f', beanie:'#ffd23f', skin:'#e8b88a', pants:'#3a2a1a'},
-  night:  {name:'Night',  jacket:'#7b5cff', beanie:'#2b2b4a', skin:'#e8b88a', pants:'#1a1a2e'},
-  golden: {name:'Golden', jacket:'#e8b93c', beanie:'#fff3b0', skin:'#e8b88a', pants:'#4a3a10'},
+  default:{name:'Pip',    hoodie:'#E8443A', face:'#FFF3E0', pack:'#F7B731', pants:'#2B2D5C'},
+  sunset: {name:'Sunset', hoodie:'#F08A3C', face:'#FFF3E0', pack:'#F7B731', pants:'#2B2D5C'},
+  night:  {name:'Night',  hoodie:'#7B5EA7', face:'#FFF3E0', pack:'#F7B731', pants:'#2B2D5C'},
+  golden: {name:'Golden', hoodie:'#F7B731', face:'#FFF3E0', pack:'#F7B731', pants:'#2B2D5C'},
 };
 const UNLOCKS=[{h:25,skin:'sunset'},{h:50,skin:'night'},{h:100,skin:'golden'}];
 let unlocked={default:true};
@@ -217,15 +242,18 @@ const sfx={
 };
 
 // ---------- procedural generator ----------
+// Ledges live on the facade (70..410). Climbability is unchanged from
+// v2 by construction: rises 24..46px (bounce apex 55px), edge gaps
+// clamped to <=70px so a bounce (0.54s airtime at the steepest rise)
+// always crosses at 230px/s steer speed, even from a respawn at the
+// ledge's far edge. The narrower band only stacks ledges closer
+// horizontally on average; the gap rule is what guarantees the climb.
 function newGenerator(seed){
   const rng=mulberry32(seed);
   return { rng, next:1, prevDir:1, nextEmitIn:18+Math.floor(rng()*8) };
 }
 // One ledge: {x,y,w,type,travel,phase,crumbleT,flag}
-// diff = height/400, ramps 0..~4 over a long climb. Bounce apex is 55px,
-// so the 24..46px rises are always clearable; edge gaps stay <= 70px so a
-// bounce (0.54s airtime at the steepest rise) always crosses at 230px/s
-// steer speed, even from a respawn at the ledge's far edge.
+// diff = height/400, ramps 0..~4 over a long climb.
 function genLedge(G, prev, diff){
   const rng=G.rng, i=G.next++;
   const y=prev.y + 24 + rng()*16 + Math.min(6, diff*1.5);
@@ -235,10 +263,10 @@ function genLedge(G, prev, diff){
   else w=Math.max(26, 30+rng()*50-diff*1.5);
   let dir = rng()<0.72 ? -G.prevDir : G.prevDir;
   const dx=40+rng()*120;
-  let cx=clamp((prev.x+prev.w/2)+dir*dx, 30, WORLD_W-30);
-  let x=clamp(cx-w/2, 6, WORLD_W-6-w);
+  let cx=clamp((prev.x+prev.w/2)+dir*dx, FACADE_X+30, FACADE_X+FACADE_W-30);
+  let x=clamp(cx-w/2, FACADE_X+6, FACADE_X+FACADE_W-6-w);
   const gap=edgeGap(prev,{x,w});
-  if(gap>70){ const shift=gap-70; x = prev.x+prev.w/2 > cx ? x+shift : x-shift; x=clamp(x,6,WORLD_W-6-w); }
+  if(gap>70){ const shift=gap-70; x = prev.x+prev.w/2 > cx ? x+shift : x-shift; x=clamp(x,FACADE_X+6,FACADE_X+FACADE_W-6-w); }
   G.prevDir=dir;
   let type='steel', travel=0, phase=rng()*6.28;
   if(!isFloorStart){
@@ -272,7 +300,8 @@ const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const $=id=>document.getElementById(id);
 const scoreEl=$('score'), heightEl=$('height'), starsEl=$('stars'), multEl=$('mult'),
   nextGoalEl=$('nextGoal'), heartsEl=$('hearts'), bestEl=$('best'),
-  floorFlashEl=$('floorFlash'), toastEl=$('toast');
+  floorFlashEl=$('floorFlash'), toastEl=$('toast'), mileWordEl=$('mileWord'),
+  streakPillEl=$('streakPill'), streakNEl=$('streakN'), streakMultEl=$('streakMult');
 let state='title'; // title | play | pause | over
 let G=null;
 let seed=0;
@@ -291,17 +320,17 @@ function heightM(){ return Math.floor(maxY/20); }
 function mult(){ return streak>=6?3:streak>=3?2:1; }
 function score(){ return heightM()+starScore+bonusScore; }
 
-function floorPalette(fi){ return FLOORS[((fi%FLOORS.length)+FLOORS.length)%FLOORS.length]; }
 function floorLabel(fi){
-  const base=FLOORS[fi%FLOORS.length].name;
-  const lap=Math.floor(fi/FLOORS.length);
+  const base=FLOOR_NAMES[fi%FLOOR_NAMES.length];
+  const lap=Math.floor(fi/FLOOR_NAMES.length);
   return lap>0 ? base+' '+(lap+1) : base;
 }
 
 function newRun(newSeed){
   seed=newSeed==null ? (Math.random()*1e9)|0 : newSeed;
   G=newGenerator(seed);
-  ledges=[{x:24,y:0,w:118,type:'steel',travel:0,phase:0,crumbleT:-1,flag:true,i:0,spike:null,vent:null}];
+  // start ledge centered on the facade: Pip spawns screen-centered
+  ledges=[{x:FACADE_X+(FACADE_W-118)/2,y:0,w:118,type:'steel',travel:0,phase:0,crumbleT:-1,flag:true,i:0,spike:null,vent:null}];
   stars=[]; saws=[]; emitters=[]; pots=[];
   checkpointLedge=ledges[0];
   time=0; worldTime=0; deaths=0; lives=3; maxY=0; floorIdx=0;
@@ -329,18 +358,18 @@ function ensureLedges(upToY){
     ledges.push(L);
     // a star hangs in the gap the player bounces through
     if(G.rng()<0.55){
-      const sx=clamp((prev.x+prev.w/2+L.x+L.w/2)/2 + (G.rng()-0.5)*30, 12, WORLD_W-12);
+      const sx=clamp((prev.x+prev.w/2+L.x+L.w/2)/2 + (G.rng()-0.5)*30, FACADE_X+12, FACADE_X+FACADE_W-12);
       stars.push({x:sx, y:prev.y+(L.y-prev.y)*0.55, got:false, missed:false, spin:G.rng()*6.28});
     }
     // spinning fan blades float in the gap, offset off the direct line
     if(G.rng()<Math.min(0.25,0.10+diff*0.01) && L.i>3){
       const midX=(prev.x+prev.w/2+L.x+L.w/2)/2 + (G.rng()<0.5?-1:1)*(45+G.rng()*25);
-      saws.push({x:clamp(midX,20,WORLD_W-20), y:prev.y+(L.y-prev.y)*0.5, amp:14+G.rng()*5, rate:2+G.rng()*0.4, phase:G.rng()*6.28});
+      saws.push({x:clamp(midX,FACADE_X+20,FACADE_X+FACADE_W-20), y:prev.y+(L.y-prev.y)*0.5, amp:14+G.rng()*5, rate:2+G.rng()*0.4, phase:G.rng()*6.28});
     }
     // flower-pot emitters every ~18-26 ledges: a pot drops from a window
     if(--G.nextEmitIn<=0){
       G.nextEmitIn=18+Math.floor(G.rng()*8);
-      const ex=clamp((prev.x+prev.w/2+L.x+L.w/2)/2 + (G.rng()-0.5)*60, 30, WORLD_W-30);
+      const ex=clamp((prev.x+prev.w/2+L.x+L.w/2)/2 + (G.rng()-0.5)*60, FACADE_X+30, FACADE_X+FACADE_W-30);
       emitters.push({x:ex, y:L.y+70, period:3.2+G.rng(), charge:0.64+G.rng()*0.12, offset:G.rng()*3, lastPhase:0});
     }
   }
@@ -354,7 +383,7 @@ function ensureLedges(upToY){
 function die(){
   if(deadT>0 || state!=='play') return;
   deadT=0.47; deaths++; lives--; streak=0; sfx.death(); shakeT=0.3;
-  burst(p.x, p.y+17, '#ff5a3c', 14);
+  burst(p.x, p.y+17, C.red, 14);
   updateHUD();
 }
 function gameOver(){
@@ -442,6 +471,8 @@ function step(dt){
       break;
     }
   }
+  // gold trail while rising (a short fading trail, Mega Jump's beam scaled down)
+  if(p.vy>100 && (time*120|0)%3===0) trail(p.x, p.y+10);
   // ---- stars: collect, streak, multiplier; missed = streak reset ----
   for(const s of stars){
     if(s.got || s.missed) continue;
@@ -449,20 +480,21 @@ function step(dt){
       s.got=true; starCount++; streak++;
       const m=mult();
       starScore+=5*m;
-      sfx.star(); burst(s.x,s.y,'#ffd23f',8);
+      sfx.star(); sparkle(s.x,s.y,8);
       showToast(streak>=3 ? 'STREAK ×'+m+'!' : '+'+(5*m));
     } else if(s.y<camY-10){
       s.missed=true;
       if(streak>0){ streak=0; }
     }
   }
-  // ---- milestones: every 10m = +25, confetti, sky shift (via height) ----
+  // ---- milestones: every 10m = +25, a big hand-lettered word, confetti ----
   const h=heightM();
   while(h>=nextMilestone){
+    const m=nextMilestone;
     bonusScore+=25;
     nextMilestone+=10;
     sfx.milestone();
-    showToast((nextMilestone-10)+'m! +25');
+    showMileWord(m);
     confetti();
   }
   // ---- unlocks: 25/50/100m, persisted ----
@@ -519,7 +551,14 @@ function step(dt){
   camX=lerp(camX,camXT,1-Math.pow(0.001,dt));
 }
 function showFloorFlash(t){ floorFlashEl.textContent=t; floorFlashEl.classList.add('show'); setTimeout(()=>floorFlashEl.classList.remove('show'),1600); }
-function showToast(t){ toastEl.textContent=t; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'),1500); }
+function showToast(t){ toastEl.querySelector('span').textContent=t; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'),1500); }
+const MILE_WORDS=['NICE!','SOARING!','SKY HIGH!','SUPERB!','AMAZING!','TO THE MOON!','UNSTOPPABLE!','LEGENDARY!'];
+function showMileWord(m){
+  const w=MILE_WORDS[((m/10-1)%MILE_WORDS.length+MILE_WORDS.length)%MILE_WORDS.length];
+  mileWordEl.textContent=w;
+  mileWordEl.classList.add('show');
+  setTimeout(()=>mileWordEl.classList.remove('show'),1400);
+}
 let hudCache={};
 function updateHUD(){
   const h=heightM(), sc=score(), m=mult();
@@ -531,60 +570,282 @@ function updateHUD(){
   if(hudCache.l!==lives){ hudCache.l=lives; heartsEl.innerHTML='♥'.repeat(Math.max(0,lives))+'<span class="off">'+'♥'.repeat(3-Math.max(0,lives))+'</span>'; }
   if(hudCache.b!==bestScore){ hudCache.b=bestScore; bestEl.textContent=bestScore; }
   if(hudCache.sb!==bestHeight){ hudCache.sb=bestHeight; $('startBest').textContent = bestHeight>0 ? 'BEST '+bestHeight+'m · SCORE '+bestScore : 'NO CLIMB YET — SET THE FIRST MARK'; }
+  if(hudCache.sk!==streak){ hudCache.sk=streak; streakPillEl.style.display = streak>=2 ? 'flex' : 'none'; streakNEl.textContent=streak; streakMultEl.textContent=m; }
 }
 
-// ---------- particles ----------
+// ---------- particles (one array, three kinds, capped ~120) ----------
 let particles=[];
-function burst(x,y,color,n){ for(let i=0;i<n;i++) particles.push({x,y,vx:(Math.random()-0.5)*120,vy:Math.random()*120+20,life:0.4+Math.random()*0.3,t:0,color,size:2+Math.random()*3}); }
-function dust(x,y){ for(let i=0;i<5;i++) particles.push({x:x+(Math.random()-0.5)*14,y:y+2,vx:(Math.random()-0.5)*50,vy:10+Math.random()*30,life:0.3,t:0,color:'#fff',size:2}); }
+function addPt(pt){ if(particles.length<120) particles.push(pt); }
+function burst(x,y,color,n){ for(let i=0;i<n;i++) addPt({kind:'rect',x,y,vx:(Math.random()-0.5)*120,vy:Math.random()*120+20,life:0.4+Math.random()*0.3,t:0,color,size:2+Math.random()*3,rot:Math.random()*6.28,vr:(Math.random()-0.5)*10}); }
+function dust(x,y){ for(let i=0;i<5;i++) addPt({kind:'dust',x:x+(Math.random()-0.5)*14,y:y+2,vx:(Math.random()-0.5)*50,vy:10+Math.random()*30,life:0.3,t:0,color:'#FFF3E0',size:2+Math.random()*2}); }
+function trail(x,y){ addPt({kind:'dust',x:x+(Math.random()-0.5)*8,y,vx:(Math.random()-0.5)*20,vy:20+Math.random()*20,life:0.35,t:0,color:'#F7B731',size:2.5}); }
+function sparkle(x,y,n){ for(let i=0;i<n;i++) addPt({kind:'spark',x,y,vx:(Math.random()-0.5)*90,vy:Math.random()*90+10,life:0.5+Math.random()*0.2,t:0,color:'#F7B731',size:3+Math.random()*2,rot:Math.random()*6.28,vr:(Math.random()-0.5)*6}); }
 function confetti(){
-  const cols=['#ffd23f','#ff5a3c','#7fe3d0','#b48cff','#ff9a3c'];
-  for(let i=0;i<40;i++) particles.push({x:p.x+(Math.random()-0.5)*80, y:p.y+30+Math.random()*30, vx:(Math.random()-0.5)*160, vy:40+Math.random()*140, life:0.8+Math.random()*0.6, t:0, color:cols[i%cols.length], size:3+Math.random()*3});
+  const cols=['#F7B731','#E8443A','#C36770','#F08A3C','#B9A8D6'];
+  for(let i=0;i<40;i++) addPt({kind:'rect',x:p.x+(Math.random()-0.5)*80, y:p.y+30+Math.random()*30, vx:(Math.random()-0.5)*160, vy:40+Math.random()*140, life:0.8+Math.random()*0.6, t:0, color:cols[i%cols.length], size:3+Math.random()*3, rot:Math.random()*6.28, vr:(Math.random()-0.5)*12});
 }
 
-// ---------- rendering ----------
-let W=0,H=0,DPR=1,SCALE=1,OFFX=0,camX=0;
-function resize(){
-  DPR=Math.min(2,window.devicePixelRatio||1);
-  W=cv.clientWidth; H=cv.clientHeight;
-  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
-  // Zoom in on narrow screens: show a slice of the 480-wide tower, not the
-  // whole width, so the climber stays big and readable on a phone.
-  SCALE=Math.min(Math.max(W/300,1.3),1.9);
+// ---------- pre-rendered assets (offscreen, built once at boot) ----------
+let brickTile=null, skyFar=null, skyNear=null, noiseTile=null;
+let brickPattern=null, noisePattern=null;
+function buildAssets(){
+  // brick tile 120x120: terracotta bricks varied +/-8% lightness,
+  // mortar lines, a few darker stains, speckles
+  const rng=mulberry32(1234);
+  brickTile=document.createElement('canvas'); brickTile.width=120; brickTile.height=120;
+  const b=brickTile.getContext('2d');
+  b.fillStyle=C.terra; b.fillRect(0,0,120,120);
+  for(let ry=0;ry<120;ry+=15){
+    const off=(Math.floor(ry/15)%2)?15:0;
+    for(let bx=off-30;bx<120;bx+=30){
+      b.fillStyle=shade(C.terra,(rng()-0.5)*0.16);
+      b.fillRect(bx+1,ry+1,28,13);
+    }
+  }
+  b.fillStyle=C.mortar;
+  for(let ry=0;ry<=120;ry+=15) b.fillRect(0,ry,120,2);
+  for(let ry=0;ry<120;ry+=15){ const off=(Math.floor(ry/15)%2)?15:0; for(let bx=off;bx<=120;bx+=30) b.fillRect(bx,ry,2,15); }
+  for(let i=0;i<8;i++){ b.fillStyle='rgba(60,20,10,0.10)'; b.beginPath(); b.ellipse(rng()*120,rng()*120,6+rng()*14,4+rng()*8,0,0,7); b.fill(); }
+  for(let i=0;i<160;i++){ b.fillStyle=rng()<0.5?'rgba(255,240,220,0.07)':'rgba(40,15,5,0.07)'; b.fillRect(rng()*120,rng()*120,1.5,1.5); }
+  brickPattern=ctx.createPattern(brickTile,'repeat');
+  // far skyline strip 480x100: pale lavender silhouettes, a few lit windows
+  skyFar=document.createElement('canvas'); skyFar.width=480; skyFar.height=100;
+  const f=skyFar.getContext('2d');
+  let fx=0;
+  while(fx<480){
+    const bw=22+rng()*38, bh=30+rng()*68;
+    f.fillStyle=C.lavender;
+    f.fillRect(fx,100-bh,bw,bh);
+    if(rng()<0.5){ f.fillRect(fx+bw*0.4,100-bh-8,3,8); } // antenna
+    for(let wy=100-bh+6;wy<92;wy+=10) for(let wx=fx+4;wx<fx+bw-4;wx+=9)
+      if(rng()<0.22){ f.fillStyle='rgba(247,183,49,0.85)'; f.fillRect(wx,wy,4,5); f.fillStyle=C.lavender; }
+    fx+=bw+2+rng()*10;
+  }
+  // near skyline strip 480x150: dusty purple, closer and darker, gold dots
+  skyNear=document.createElement('canvas'); skyNear.width=480; skyNear.height=150;
+  const n=skyNear.getContext('2d');
+  let nx=0;
+  while(nx<480){
+    const bw=30+rng()*44, bh=45+rng()*100;
+    n.fillStyle=C.purple;
+    n.fillRect(nx,150-bh,bw,bh);
+    if(rng()<0.4){ n.beginPath(); n.moveTo(nx,150-bh); n.lineTo(nx+bw/2,150-bh-12); n.lineTo(nx+bw,150-bh); n.closePath(); n.fill(); } // pitched roof
+    for(let wy=150-bh+8;wy<142;wy+=12) for(let wx=nx+5;wx<nx+bw-5;wx+=11)
+      if(rng()<0.3){ n.fillStyle='#F7B731'; n.fillRect(wx,wy,3,4); n.fillStyle=C.purple; }
+    nx+=bw+3+rng()*12;
+  }
+  // speckle-noise tile 200x200 (gouache grain), drawn over the frame at low alpha
+  noiseTile=document.createElement('canvas'); noiseTile.width=200; noiseTile.height=200;
+  const nn=noiseTile.getContext('2d');
+  for(let i=0;i<900;i++){
+    nn.fillStyle=rng()<0.5?'rgba(255,240,220,0.05)':'rgba(30,10,20,0.05)';
+    nn.fillRect(rng()*200,rng()*200,1.4,1.4);
+  }
+  noisePattern=ctx.createPattern(noiseTile,'repeat');
 }
-addEventListener('resize',resize);
-function viewH(){ return H/SCALE; }
+
+// ---------- drawing helpers ----------
 function rowSeed(fi,ry){ let h=(fi*374761393+ry*668265263)^0x5bf03635; h=Math.imul(h^h>>>13,1274126177); return ((h^h>>>16)>>>0)/4294967296; }
-function drawStar(cx,cy,r,rot){
+function roundRectPath(g,x,y,w,h,r){
+  g.beginPath();
+  g.moveTo(x+r,y);
+  g.lineTo(x+w-r,y); g.quadraticCurveTo(x+w,y,x+w,y+r);
+  g.lineTo(x+w,y+h-r); g.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  g.lineTo(x+r,y+h); g.quadraticCurveTo(x,y+h,x,y+h-r);
+  g.lineTo(x,y+r); g.quadraticCurveTo(x,y,x+r,y);
+  g.closePath();
+}
+// rounded rect with uneven corner radii + a slightly wobbly top edge:
+// the Doodle Jump rule — no perfect rectangles anywhere.
+function wobblePath(x,y,w,h,seed){
+  const r1=3+rowSeed(seed,1)*3, r2=3+rowSeed(seed,2)*3, r3=3+rowSeed(seed,3)*3, r4=3+rowSeed(seed,4)*3;
+  const wob=(rowSeed(seed,5)-0.5)*2;
   ctx.beginPath();
-  for(let k=0;k<10;k++){
-    const a=rot+k*Math.PI/5, rr=k%2?r*0.45:r;
+  ctx.moveTo(x+r1,y);
+  ctx.quadraticCurveTo(x+w/2,y+wob,x+w-r2,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r2);
+  ctx.lineTo(x+w,y+h-r3);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-r3,y+h);
+  ctx.lineTo(x+r4,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r4);
+  ctx.lineTo(x,y+r1);
+  ctx.quadraticCurveTo(x,y,x+r1,y);
+  ctx.closePath();
+}
+// four-point star (like ✦), used for collectible stars and sparkles
+function drawStar4(cx,cy,r){
+  ctx.beginPath();
+  for(let k=0;k<8;k++){
+    const a=-Math.PI/2 + k*Math.PI/4, rr=k%2?r*0.28:r;
     const x=cx+Math.cos(a)*rr, y=cy+Math.sin(a)*rr;
     if(k===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
   }
   ctx.closePath();
 }
+
+// ---------- Pip: one round blob, 26x30 ----------
+// Body and head are the same circle, no neck. Pointed hood, gold
+// backpack, tiny legs, big cream face with huge dot eyes looking UP.
+// Drawn in local coords: feet at (0,0), up is -y.
+// o: {facing, vy, vx, landTime, deadT, t}
+function drawPip(g, skin, o){
+  const f=o.facing||1;
+  if(o.deadT>0){
+    // death: the hood pops off and the character flattens — one frame
+    // of comedy, then respawn.
+    g.save();
+    g.scale(1.5,0.32);
+    g.fillStyle=skin.hoodie;
+    g.beginPath(); g.arc(0,-12,13,0,7); g.fill();
+    g.restore();
+    const pop=(0.47-o.deadT)*70;
+    g.save(); g.translate(8,-34-pop); g.rotate(0.6);
+    g.fillStyle=skin.hoodie;
+    g.beginPath(); g.moveTo(-6,0); g.lineTo(0,-9); g.lineTo(6,0); g.closePath(); g.fill();
+    g.restore();
+    return;
+  }
+  // backpack (on the side opposite the facing)
+  g.fillStyle=skin.pack;
+  const bx=f>0?-14:7;
+  roundRectPath(g,bx,-26,7,14,3); g.fill();
+  g.fillStyle='rgba(43,45,92,0.35)';
+  g.fillRect(bx+1,-24,5,2);
+  // legs: tuck up while rising, kick out on landing
+  g.fillStyle=skin.pants;
+  if(o.vy>40){ g.fillRect(-5,-8,4,8); g.fillRect(1,-6,4,6); }
+  else if(o.landTime>0){ g.fillRect(-8,-9,4,9); g.fillRect(4,-9,4,9); }
+  else { const s1=Math.sin((o.t||0)*14)*2*(Math.abs(o.vx)>20?1:0); g.fillRect(-5+s1*0.4,-11,4,11); g.fillRect(1-s1*0.4,-11,4,11); }
+  // stub arms
+  g.fillStyle=skin.hoodie;
+  g.fillRect(f>0?10:-13,-22,3.5,8);
+  g.fillRect(f>0?-13:10,-22,3.5,8);
+  // body: one round blob
+  g.fillStyle=skin.hoodie;
+  g.beginPath(); g.arc(0,-15,13,0,7); g.fill();
+  // hood points (two small triangles on top)
+  g.beginPath(); g.moveTo(-9,-25); g.lineTo(-6,-31); g.lineTo(-3,-25); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(3,-25); g.lineTo(6,-31); g.lineTo(9,-25); g.closePath(); g.fill();
+  // face: big cream oval, top half of the blob
+  g.fillStyle=skin.face;
+  g.beginPath(); g.ellipse(0,-19,9,7.5,0,0,7); g.fill();
+  // eyes: huge black dots, looking UP
+  g.fillStyle=C.ink;
+  g.beginPath(); g.arc(-3.8,-21.5,2.3,0,7); g.fill();
+  g.beginPath(); g.arc(3.8,-21.5,2.3,0,7); g.fill();
+  g.fillStyle='#fff';
+  g.beginPath(); g.arc(-3.1,-22.3,0.8,0,7); g.fill();
+  g.beginPath(); g.arc(4.5,-22.3,0.8,0,7); g.fill();
+  // small open smile
+  g.fillStyle=C.ink;
+  g.beginPath(); g.arc(0,-15,2,0,Math.PI); g.fill();
+}
+
+// ---------- rendering ----------
+let W=0,H=0,DPR=1,SCALE=1,OFFX=0,camX=0;
+let birdT=8, birdX=-60, birdY=0, birdActive=false;
+function resize(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=cv.clientWidth; H=cv.clientHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  // The facade (340) plus a sky margin on each side fits a phone view:
+  // at 390px wide SCALE is 1.0, view 390 wide, ~25px of sky each side.
+  SCALE=Math.min(Math.max(W/400,1.0),1.6);
+}
+addEventListener('resize',resize);
+function viewH(){ return H/SCALE; }
+
+function drawRoofObj(kind,x,ly){
+  // small rooftop object on a ledge top, at the edge so the player
+  // rarely lands on it: potted plant / chimney / dish / washing line
+  if(kind===0){
+    ctx.fillStyle=C.terra; ctx.fillRect(x-3,ly-5,6,5);
+    ctx.fillStyle=C.sage;
+    ctx.beginPath(); ctx.arc(x-2,ly-7,2.5,0,7); ctx.arc(x+2,ly-8,2.5,0,7); ctx.arc(x,ly-10,2.5,0,7); ctx.fill();
+  } else if(kind===1){
+    ctx.fillStyle=C.indigo; ctx.fillRect(x-3,ly-11,6,11);
+    ctx.fillStyle=C.cream; ctx.fillRect(x-4,ly-12,8,2.5);
+  } else if(kind===2){
+    ctx.strokeStyle=C.indigo; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(x,ly); ctx.lineTo(x+3,ly-7); ctx.stroke();
+    ctx.fillStyle=C.gold;
+    ctx.beginPath(); ctx.arc(x+4,ly-8,4.5,Math.PI,Math.PI*1.6); ctx.fill();
+  } else {
+    ctx.strokeStyle=C.indigo; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x-8,ly-8); ctx.lineTo(x+8,ly-8); ctx.stroke();
+    ctx.fillStyle=C.cream; ctx.fillRect(x-4,ly-8,4,5);
+    ctx.fillStyle=C.magenta; ctx.fillRect(x+1,ly-8,4,5);
+  }
+}
+function drawFacadeDetail(band,toY){
+  const y=band*175+50+rowSeed(band,7)*70;
+  if(y<20) return;
+  const kind=band===0?'sign':Math.floor(rowSeed(band,8)*3);
+  if(kind==='sign'){
+    ctx.save(); ctx.translate(FACADE_X+120,toY(y)); ctx.rotate(-0.03);
+    ctx.fillStyle=C.gold;
+    roundRectPath(ctx,-52,-13,104,26,6); ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle=C.indigo; ctx.stroke();
+    ctx.fillStyle=C.indigo; ctx.font='900 11px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('ROOFTOP RUSH',0,1);
+    ctx.restore();
+  } else if(kind===0){
+    // clothesline with shirts
+    const ly=toY(y);
+    ctx.strokeStyle=C.indigo; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(FACADE_X+16,ly); ctx.quadraticCurveTo(FACADE_X+FACADE_W/2,ly+6,FACADE_X+FACADE_W-16,ly); ctx.stroke();
+    const shirts=[C.cream,C.magenta,C.gold];
+    for(let k=0;k<3;k++){ const sx=FACADE_X+70+k*90; ctx.fillStyle=shirts[k]; ctx.fillRect(sx-7,ly+1,14,12); }
+  } else if(kind===1){
+    // pigeons on a wire
+    const ly=toY(y);
+    ctx.strokeStyle=C.indigo; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(FACADE_X+16,ly); ctx.lineTo(FACADE_X+FACADE_W-16,ly); ctx.stroke();
+    for(let k=0;k<3;k++){
+      const px=FACADE_X+90+k*80;
+      ctx.fillStyle=C.indigo;
+      ctx.beginPath(); ctx.ellipse(px,ly-3,5,3.5,0,0,7); ctx.fill();
+      ctx.beginPath(); ctx.arc(px+3,ly-7,2,0,7); ctx.fill();
+    }
+  } else {
+    // water tank silhouette at the facade's left edge
+    const ly=toY(y);
+    ctx.fillStyle=C.indigo;
+    ctx.fillRect(FACADE_X+8,ly-26,26,26);
+    ctx.beginPath(); ctx.ellipse(FACADE_X+21,ly-26,13,4,0,0,7); ctx.fill();
+    ctx.fillRect(FACADE_X+12,ly,4,8); ctx.fillRect(FACADE_X+26,ly,4,8);
+  }
+}
 function draw(){
   ctx.setTransform(DPR,0,0,DPR,0,0);
-  const pal=floorPalette(floorIdx);
   const sky=skyAt(heightM());
-  // the building reflects the sky: tint the wall toward the sky's low
-  // colour so dawn/day/sunset/dusk/night actually read on the wall — on a
-  // phone the wall covers the screen, so this tint IS the sky shift the
-  // player sees (the gradient sky itself only peeks out on wide screens)
-  const wallCol=hexLerp(pal.wall, sky.bot, 0.55);
-  const mortarCol=hexLerp(pal.mortar, sky.bot, 0.55);
-  // sky (screen space)
+  // sky (screen space): the five phases, now VISIBLE on both sides
   const g=ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,sky.top); g.addColorStop(1,sky.bot);
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  // sun / moon
-  ctx.fillStyle=sky.sun;
-  ctx.globalAlpha=0.9;
-  ctx.beginPath(); ctx.arc(W*0.82,H*0.12,26,0,7); ctx.fill();
-  ctx.globalAlpha=0.25;
-  ctx.beginPath(); ctx.arc(W*0.82,H*0.12,40,0,7); ctx.fill();
+  // sun: a low gold disc that sinks as you climb, fading out at night
+  const sunY=H*0.08+Math.min(H*0.55,heightM()*2.2);
+  const sunA=Math.max(0,1-sky.stars*0.85);
+  if(sunA>0.02){
+    ctx.fillStyle=C.gold;
+    ctx.globalAlpha=sunA*0.25; ctx.beginPath(); ctx.arc(W*0.82,sunY,44,0,7); ctx.fill();
+    ctx.globalAlpha=sunA; ctx.beginPath(); ctx.arc(W*0.82,sunY,26,0,7); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+  // soft painted cloud puffs, drifting slowly, fading at night
+  ctx.globalAlpha=0.14*(1-sky.stars*0.7);
+  for(let k=0;k<3;k++){
+    const cx=(((k*197 + worldTime*6*(k%2?1:-1))%(W+240))+W+240)%(W+240)-120;
+    const cy=H*(0.16+k*0.13);
+    ctx.fillStyle=k%2?C.magenta:C.gold;
+    ctx.beginPath(); ctx.ellipse(cx,cy,46,12,0,0,7); ctx.ellipse(cx+30,cy+3,30,9,0,0,7); ctx.ellipse(cx-32,cy+4,26,8,0,0,7); ctx.fill();
+  }
   ctx.globalAlpha=1;
+  // skyline layers (screen space, bottom-anchored, horizontal parallax)
+  const farOff=((camX*0.15*SCALE)%480+480)%480;
+  for(let x=-farOff;x<W;x+=480) ctx.drawImage(skyFar,x,H-100);
+  const nearOff=((camX*0.35*SCALE)%480+480)%480;
+  for(let x=-nearOff;x<W;x+=480) ctx.drawImage(skyNear,x,H-150);
   const visH=H/SCALE;
   const viewW=W/SCALE;
   OFFX=viewW>=WORLD_W?(W-WORLD_W*SCALE)/2:0;
@@ -611,207 +872,207 @@ function draw(){
     }
     ctx.globalAlpha=1;
   }
-  // clouds (world space, drift slowly)
-  for(let b=Math.floor((camBottom-100)/300);b*300<camBottom+visH+100;b++){
-    const r1=rowSeed(777,b), r2=rowSeed(776,b);
-    const cx=r1*WORLD_W, cy=b*300+r2*180+((worldTime*3)%300)*0;
-    ctx.fillStyle='rgba(255,255,255,0.55)';
-    ctx.beginPath(); ctx.ellipse(cx,toY(cy),34,11,0,0,7); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx+22,toY(cy)+4,24,9,0,0,7); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx-24,toY(cy)+5,20,8,0,0,7); ctx.fill();
-  }
-  // building wall
+  // ---- facade: terracotta brick, pattern-filled ----
   const y0=Math.floor((camBottom-40)/14)*14, y1=camBottom+visH+40;
-  ctx.fillStyle=wallCol; ctx.fillRect(0,toY(y1),WORLD_W,y1-y0);
+  ctx.fillStyle=brickPattern;
+  ctx.fillRect(FACADE_X,toY(y1),FACADE_W,y1-y0);
+  // the facade takes on the sky's low colour as you climb
+  ctx.fillStyle=sky.bot; ctx.globalAlpha=0.16;
+  ctx.fillRect(FACADE_X,toY(y1),FACADE_W,y1-y0); ctx.globalAlpha=1;
+  // windows on the facade: more warm-lit as night falls
   for(let ry=y0;ry<y1;ry+=14){
-    const row=Math.floor(ry/14);
-    ctx.fillStyle=mortarCol;
-    ctx.fillRect(0,toY(ry+14),WORLD_W,1.5);
-    const off=(row%2?14:0);
-    for(let bx=off-28;bx<WORLD_W;bx+=28){
-      ctx.fillRect(bx,toY(ry+14),1.5,14);
-    }
-    // windows, deterministic per row: more warm-lit as night falls
     const r1=rowSeed(floorIdx,ry);
     if(r1<0.20){
-      const wx=40+rowSeed(floorIdx,ry+7)*380;
+      const wx=FACADE_X+24+rowSeed(floorIdx,ry+7)*(FACADE_W-64);
       const lit=rowSeed(floorIdx,ry+3)<0.55+sky.stars*0.35;
-      ctx.fillStyle='#3a2f45'; ctx.fillRect(wx-2,toY(ry+13)-2,30,15);
-      ctx.fillStyle=lit?'#ffd97a':'#5b6a84';
+      ctx.fillStyle=C.indigo; ctx.fillRect(wx-2,toY(ry+13)-2,30,15);
+      ctx.fillStyle=lit?C.gold:C.slate;
       ctx.fillRect(wx,toY(ry+13),26,11);
-      ctx.fillStyle='#3a2f45';
+      ctx.fillStyle=C.indigo;
       ctx.fillRect(wx+12,toY(ry+13),2,11); ctx.fillRect(wx,toY(ry+13)+5,26,1.5);
     }
   }
-  // side trim: darker edge strips frame the tower
-  ctx.fillStyle='rgba(0,0,0,0.18)';
-  ctx.fillRect(0,toY(y1),8,y1-y0); ctx.fillRect(WORLD_W-8,toY(y1),8,y1-y0);
+  // painted facade details, one per ~175px band
+  for(let band=Math.floor((camBottom-100)/175); band*175<camBottom+visH+100; band++) drawFacadeDetail(band,toY);
+  // dark indigo corner strips frame the playfield
+  ctx.fillStyle=C.indigo;
+  ctx.fillRect(FACADE_X,toY(y1),6,y1-y0); ctx.fillRect(FACADE_X+FACADE_W-6,toY(y1),6,y1-y0);
   // flower-pot emitters: a window with a wobbling pot while charging
   for(const e of emitters){
     if(e.y<camBottom-60||e.y>camBottom+visH+60) continue;
     const ey=toY(e.y);
-    ctx.fillStyle='#3a2f45'; ctx.fillRect(e.x-13,ey-8,26,15);
-    ctx.fillStyle='#ffd97a'; ctx.fillRect(e.x-11,ey-6,22,11);
+    ctx.fillStyle=C.indigo; ctx.fillRect(e.x-13,ey-8,26,15);
+    ctx.fillStyle=C.gold; ctx.fillRect(e.x-11,ey-6,22,11);
     const phase=(worldTime+e.offset)%e.period;
     const wob=phase<e.charge?Math.sin(worldTime*16)*2:0;
-    ctx.fillStyle='#c65a3a';
+    ctx.fillStyle=C.terra;
     ctx.beginPath(); ctx.moveTo(e.x-7+wob,ey+2); ctx.lineTo(e.x+7+wob,ey+2); ctx.lineTo(e.x+5+wob,ey+12); ctx.lineTo(e.x-5+wob,ey+12); ctx.closePath(); ctx.fill();
-    ctx.fillStyle='#4ade80'; ctx.fillRect(e.x-5+wob,ey-2,10,4);
+    ctx.fillStyle=C.sage; ctx.fillRect(e.x-5+wob,ey-2,10,4);
     if(phase<e.charge && phase>e.charge-0.35){
-      ctx.fillStyle='#ff5a3c'; ctx.font='900 12px system-ui'; ctx.textAlign='center';
+      ctx.fillStyle=C.red; ctx.font='900 12px system-ui'; ctx.textAlign='center';
       ctx.fillText('!',e.x,ey-12);
     }
   }
-  // falling pots
+  // falling pots: red motion streak + a landing shadow on the ledge below
   for(const pot of pots){
     const py=toY(pot.y);
-    ctx.fillStyle='#c65a3a';
+    let shL=null;
+    for(const L of ledges){
+      if(L.y<pot.y && pot.x>=ledgeXAt(L,worldTime)-2 && pot.x<=ledgeXAt(L,worldTime)+L.w+2){ if(!shL||L.y>shL.y) shL=L; }
+    }
+    if(shL){ ctx.fillStyle='rgba(43,45,92,0.35)'; ctx.beginPath(); ctx.ellipse(pot.x,toY(shL.y)+2,8,2.5,0,0,7); ctx.fill(); }
+    ctx.strokeStyle='rgba(232,68,58,0.7)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(pot.x,py-12); ctx.lineTo(pot.x,py-2); ctx.stroke();
+    ctx.fillStyle=C.terra;
     ctx.beginPath(); ctx.moveTo(pot.x-7,py); ctx.lineTo(pot.x+7,py); ctx.lineTo(pot.x+5,py+10); ctx.lineTo(pot.x-5,py+10); ctx.closePath(); ctx.fill();
-    ctx.fillStyle='#4ade80'; ctx.fillRect(pot.x-5,py-4,10,4);
+    ctx.fillStyle=C.sage; ctx.fillRect(pot.x-5,py-4,10,4);
   }
-  // ledges: balconies / awnings / AC units
+  // ledges: rooftops, color-coded by type, wobbly ink outlines
   for(const L of ledges){
     const lx=ledgeXAt(L,worldTime), ly=toY(L.y);
     if(ly<-60||ly>H+60) continue;
+    // crumble that has broken drops in three pieces
+    if(L.type==='crumble' && L.crumbleT>0.48){
+      const drop=Math.min(120,(L.crumbleT-0.48)*260);
+      for(let k=0;k<3;k++){
+        const px=lx+k*L.w/3+2, py2=ly+drop+k*7;
+        ctx.save(); ctx.translate(px+L.w/6,py2+5); ctx.rotate((k-1)*0.18); ctx.translate(-(px+L.w/6),-(py2+5));
+        ctx.fillStyle=C.dusty; ctx.fillRect(px,py2,L.w/3-4,9);
+        ctx.strokeStyle=C.indigo; ctx.lineWidth=1.5; ctx.strokeRect(px+0.5,py2+0.5,L.w/3-5,8);
+        ctx.restore();
+      }
+      continue;
+    }
     const sinking=L.crumbleT>=0?Math.min(6,L.crumbleT*14):0;
     const wob=L.crumbleT>=0&&L.crumbleT<0.48?Math.sin(worldTime*40)*1.2:0;
     ctx.save(); ctx.translate(wob,sinking);
     if(L.type==='crumble'){
-      // striped awning, tilted
-      ctx.save(); ctx.translate(lx+L.w/2,ly+4); ctx.rotate(-0.06);
-      ctx.fillStyle='#e8e0d0'; ctx.fillRect(-L.w/2,0,L.w,7);
-      ctx.fillStyle=pal.ledge;
-      for(let sx=-L.w/2;sx<L.w/2;sx+=14) ctx.fillRect(sx,0,7,7);
-      ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(-L.w/2,5,L.w,2);
+      // tilted dusty slab, crack lines, dust leaking from the edges
+      ctx.save(); ctx.translate(lx+L.w/2,ly+6); ctx.rotate(0.05); ctx.translate(-(lx+L.w/2),-(ly+6));
+      wobblePath(lx,ly,L.w,12,L.i);
+      ctx.fillStyle=C.dusty; ctx.fill();
+      ctx.lineWidth=2.5; ctx.strokeStyle=C.indigo; ctx.stroke();
+      ctx.fillStyle='#D9BC8A'; ctx.fillRect(lx+3,ly+1,L.w-6,3);
+      ctx.strokeStyle='rgba(43,45,92,0.8)'; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(lx+L.w*0.3,ly+1); ctx.lineTo(lx+L.w*0.45,ly+9); ctx.moveTo(lx+L.w*0.6,ly+1); ctx.lineTo(lx+L.w*0.75,ly+9); ctx.stroke();
       ctx.restore();
-      if(L.crumbleT>=0){
-        ctx.strokeStyle='rgba(255,90,60,0.9)'; ctx.lineWidth=1.5;
-        ctx.beginPath(); ctx.moveTo(lx+L.w*0.3,ly); ctx.lineTo(lx+L.w*0.45,ly+9); ctx.moveTo(lx+L.w*0.6,ly); ctx.lineTo(lx+L.w*0.75,ly+9); ctx.stroke();
-      }
+      ctx.fillStyle='rgba(255,243,224,0.8)';
+      const dph=worldTime*3+L.i;
+      ctx.beginPath(); ctx.arc(lx+3+Math.sin(dph)*1.5,ly+10,1.6,0,7); ctx.arc(lx+L.w-3+Math.cos(dph)*1.5,ly+10,1.6,0,7); ctx.fill();
     } else if(L.type==='move'){
-      // AC unit: grey box with a spinning fan
-      ctx.fillStyle='#5a6274'; ctx.fillRect(lx,ly,L.w,13);
-      ctx.fillStyle='#8a93a8'; ctx.fillRect(lx,ly,L.w,4);
-      ctx.fillStyle='#2c3040'; ctx.beginPath(); ctx.arc(lx+L.w/2,ly+8,5,0,7); ctx.fill();
-      ctx.save(); ctx.translate(lx+L.w/2,ly+8); ctx.rotate(worldTime*9);
-      ctx.strokeStyle='#d7dbe8'; ctx.lineWidth=1.5;
-      for(let k=0;k<3;k++){ ctx.rotate(Math.PI*2/3); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-4.5); ctx.stroke(); }
-      ctx.restore();
-      ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fillRect(lx,ly+13,L.w,2);
+      // rail behind it spanning its travel + wheels underneath,
+      // so the motion reads even when the ledge is still
+      ctx.strokeStyle='rgba(43,45,92,0.55)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(lx-L.travel,ly+8); ctx.lineTo(lx+L.w+L.travel,ly+8); ctx.stroke();
+      ctx.fillStyle=C.indigo;
+      ctx.beginPath(); ctx.arc(lx+6,ly+14,2.5,0,7); ctx.arc(lx+L.w-6,ly+14,2.5,0,7); ctx.fill();
+      ctx.fillStyle=C.cream;
+      ctx.beginPath(); ctx.arc(lx+6,ly+14,1,0,7); ctx.arc(lx+L.w-6,ly+14,1,0,7); ctx.fill();
+      wobblePath(lx,ly,L.w,12,L.i);
+      ctx.fillStyle=C.greyBlue; ctx.fill();
+      ctx.lineWidth=2.5; ctx.strokeStyle=C.indigo; ctx.stroke();
+      ctx.fillStyle=C.slate; ctx.fillRect(lx+3,ly+1,L.w-6,3.5);
+      ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.fillRect(lx+3,ly+1,L.w-6,1.2);
     } else {
-      // balcony: chunky slab, bright top, dark outline, railing
-      ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(lx+1,ly+2,L.w,13);
-      ctx.fillStyle=pal.ledge; ctx.fillRect(lx,ly,L.w,12);
-      ctx.fillStyle=pal.ledgeTop; ctx.fillRect(lx,ly,L.w,4.5);
-      ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.fillRect(lx,ly,L.w,1.5);
-      ctx.strokeStyle='rgba(0,0,0,0.4)'; ctx.lineWidth=1;
-      ctx.strokeRect(lx+0.5,ly+0.5,L.w-1,11);
-      // railing
-      ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(lx+3,ly); ctx.lineTo(lx+3,ly-7); ctx.moveTo(lx+L.w-3,ly); ctx.lineTo(lx+L.w-3,ly-7); ctx.moveTo(lx,ly-7); ctx.lineTo(lx+L.w,ly-7); ctx.stroke();
+      // steel: sunlit gold top edge, sandstone body, ink outline
+      wobblePath(lx,ly,L.w,12,L.i);
+      ctx.fillStyle=C.sand; ctx.fill();
+      ctx.lineWidth=2.5; ctx.strokeStyle=C.indigo; ctx.stroke();
+      ctx.fillStyle=C.sunlit; ctx.fillRect(lx+3,ly+1,L.w-6,3);
+      // rooftop object at one edge (plant / chimney / dish / washing line)
+      const objKind=Math.floor(rowSeed(L.i,55)*4);
+      const ox=lx+(L.i%2?L.w*0.8:L.w*0.2);
+      drawRoofObj(objKind,ox,ly);
     }
-    // antenna spikes on the edge
+    // antenna spikes: three thin dark antennas with RED tips
     if(L.spike){
       const sx=lx+(L.spike.edge==='right'?L.w-L.spike.w:0);
-      ctx.fillStyle='#3a2f45';
+      ctx.strokeStyle=C.indigo; ctx.lineWidth=1.5;
       for(let k=0;k<3;k++){
-        const tx=sx+k*(L.spike.w/3);
-        ctx.beginPath(); ctx.moveTo(tx,ly); ctx.lineTo(tx+L.spike.w/6,ly-13); ctx.lineTo(tx+L.spike.w/3,ly); ctx.closePath(); ctx.fill();
+        const tx=sx+k*(L.spike.w/3)+L.spike.w/6;
+        ctx.beginPath(); ctx.moveTo(tx,ly); ctx.lineTo(tx,ly-13); ctx.stroke();
       }
-      ctx.fillStyle='#ff5a3c';
-      ctx.beginPath(); ctx.arc(sx+L.spike.w/2,ly-14,1.8,0,7); ctx.fill();
+      for(let k=0;k<3;k++){
+        const tx=sx+k*(L.spike.w/3)+L.spike.w/6;
+        ctx.fillStyle=C.red;
+        ctx.globalAlpha=0.25; ctx.beginPath(); ctx.arc(tx,ly-13,4,0,7); ctx.fill(); ctx.globalAlpha=1;
+        ctx.beginPath(); ctx.arc(tx,ly-13,2,0,7); ctx.fill();
+      }
     }
-    // AC steam vent
+    // steam vent: dark grate with a red rim; warn = pulsing red ring,
+    // blast = white-grey puff column with a red core
     if(L.vent){
       const v=ventAt(L.vent,L,worldTime);
-      ctx.fillStyle='#5a6274'; ctx.fillRect(v.x-5,ly-8,13,9);
-      ctx.fillStyle='#8a93a8'; ctx.fillRect(v.x-5,ly-8,13,3);
+      ctx.fillStyle=C.indigo; ctx.fillRect(v.x-5,ly-8,13,9);
+      ctx.strokeStyle=C.red; ctx.lineWidth=1.5; ctx.strokeRect(v.x-5.5,ly-8.5,14,10);
+      ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.fillRect(v.x-3,ly-6,9,1.5); ctx.fillRect(v.x-3,ly-3,9,1.5);
       if(v.active){
         ctx.fillStyle='rgba(255,255,255,0.85)';
         for(let k=0;k<3;k++){ const px2=v.x+3+Math.sin(worldTime*6+k)*3; ctx.beginPath(); ctx.arc(px2,ly-14-k*9,4.5,0,7); ctx.fill(); }
-        ctx.fillStyle='rgba(255,255,255,0.4)';
-        ctx.beginPath(); ctx.arc(v.x+3,ly-36,8,0,7); ctx.fill();
+        ctx.fillStyle=C.red; ctx.beginPath(); ctx.arc(v.x+3,ly-12,2.5,0,7); ctx.fill();
       } else if(v.warning){
-        ctx.fillStyle='rgba(255,179,71,0.6)';
-        ctx.beginPath(); ctx.arc(v.x+3,ly-12,3.5,0,7); ctx.fill();
+        const pr=4+((worldTime*2+v.phase)%1)*7;
+        ctx.strokeStyle=C.red; ctx.globalAlpha=0.9; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(v.x+3,ly-12,pr,0,7); ctx.stroke(); ctx.globalAlpha=1;
       }
     }
-    // flag checkpoint
+    // flag checkpoint (gold)
     if(L.flag){
       const fx=lx+6, fy=ly;
-      ctx.strokeStyle='#3a2f45'; ctx.lineWidth=2.5;
+      ctx.strokeStyle=C.indigo; ctx.lineWidth=2.5;
       ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx,fy-30); ctx.stroke();
       const wave=Math.sin(worldTime*6+L.i)*2;
-      ctx.fillStyle='#4ade80';
+      ctx.fillStyle=C.gold;
       ctx.beginPath(); ctx.moveTo(fx,fy-30); ctx.lineTo(fx+15,fy-25+wave); ctx.lineTo(fx,fy-20); ctx.closePath(); ctx.fill();
     }
     ctx.restore();
   }
-  // stars
+  // stars: gold four-point star, white core, sparkle cross, pulsing
   for(const s of stars){
     if(s.got || s.missed) continue;
     if(s.y<camBottom-40||s.y>camBottom+visH+40) continue;
     const sy=toY(s.y+Math.sin(worldTime*4+s.spin)*2);
-    const pulse=1+Math.sin(worldTime*5+s.spin)*0.12;
+    const pulse=1+0.075*Math.sin(worldTime*Math.PI*2/0.8+s.spin);
     ctx.save(); ctx.translate(s.x,sy); ctx.scale(pulse,pulse);
-    ctx.fillStyle='rgba(255,210,63,0.35)';
-    drawStar(0,0,13,worldTime*0.6+s.spin); ctx.fill();
-    ctx.fillStyle='#ffd23f';
-    drawStar(0,0,8.5,worldTime*0.6+s.spin); ctx.fill();
-    ctx.fillStyle='#fff3b0';
-    drawStar(0,0,4,worldTime*0.6+s.spin); ctx.fill();
+    ctx.fillStyle='rgba(247,183,49,0.35)';
+    drawStar4(0,0,13); ctx.fill();
+    ctx.fillStyle=C.gold;
+    drawStar4(0,0,8.5); ctx.fill();
+    ctx.fillStyle='#fff';
+    drawStar4(0,0,3.5); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(-11,0); ctx.lineTo(11,0); ctx.moveTo(0,-11); ctx.lineTo(0,11); ctx.stroke();
     ctx.restore();
   }
-  // spinning fan blades
+  // spinning fan blades: red/white pinwheel, dark hub, motion-blur arc
   for(const s of saws){
     const b=sawAt(s,worldTime);
     if(b.y<camBottom-40||b.y>camBottom+visH+40) continue;
     const bx=b.x, by=toY(b.y);
+    ctx.strokeStyle='rgba(232,68,58,0.25)'; ctx.lineWidth=5;
+    ctx.beginPath(); ctx.arc(bx,by,11,worldTime*7,worldTime*7+2.1); ctx.stroke();
     ctx.save(); ctx.translate(bx,by); ctx.rotate(worldTime*7);
-    ctx.fillStyle='#e8ecff';
-    for(let k=0;k<3;k++){ ctx.rotate(Math.PI*2/3); ctx.beginPath(); ctx.ellipse(0,-8,4,8,0,0,7); ctx.fill(); }
+    for(let k=0;k<4;k++){
+      ctx.rotate(Math.PI/2);
+      ctx.fillStyle=k%2?C.red:C.face;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-3.5,-10); ctx.lineTo(3.5,-10); ctx.closePath(); ctx.fill();
+    }
     ctx.restore();
-    ctx.fillStyle='#5a6274'; ctx.beginPath(); ctx.arc(bx,by,5,0,7); ctx.fill();
-    ctx.fillStyle='#ffd23f'; ctx.beginPath(); ctx.arc(bx,by,2,0,7); ctx.fill();
+    ctx.fillStyle=C.indigo; ctx.beginPath(); ctx.arc(bx,by,4,0,7); ctx.fill();
+    ctx.fillStyle=C.gold; ctx.beginPath(); ctx.arc(bx,by,1.8,0,7); ctx.fill();
   }
-  // player: chunky climber with squash & stretch
+  // Pip: squash to 0.7 on landing, stretch to 1.15 while rising
   if(state!=='over' || deadT>0){
     const px=p.x, py=toY(p.y);
     const skin=SKINS[skinId]||SKINS.default;
-    const stretch=p.vy>60?1+Math.min(0.12,p.vy/285*0.12):1;
+    const stretch=p.vy>60?1+Math.min(0.15,p.vy/285*0.15):1;
     const sqY=p.squash*stretch, sqX=1+(1-p.squash)*0.6;
     const flash=deadT>0&&Math.floor(worldTime*20)%2===0;
     ctx.save(); ctx.translate(px,py);
     if(flash) ctx.globalAlpha=0.35;
     ctx.scale(sqX,sqY);
-    const f=p.facing;
-    // legs
-    ctx.fillStyle=skin.pants;
-    if(p.vy>40){ ctx.fillRect(-5,-10,4,10); ctx.fillRect(1,-8,4,8); }
-    else { const s1=Math.sin(worldTime*14)*2.5*(Math.abs(p.vx)>20?1:0); ctx.fillRect(-5+s1*0.4,-11,4,11); ctx.fillRect(1-s1*0.4,-11,4,11); }
-    // body (jacket)
-    ctx.fillStyle=skin.jacket;
-    ctx.fillRect(-7,-24,14,14);
-    ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(-7,-12,14,2);
-    // arms
-    ctx.fillStyle=skin.jacket;
-    ctx.fillRect(f>0?6:-10,-23,4,9);
-    ctx.fillRect(f>0?-10:6,-23,4,9);
-    // head + beanie
-    ctx.fillStyle=skin.skin;
-    ctx.fillRect(-6,-33,12,10);
-    ctx.fillStyle=skin.beanie;
-    ctx.fillRect(-7,-36,14,5);
-    ctx.fillStyle=skin.beanie;
-    ctx.fillRect(-3,-39,6,4);
-    // eye
-    ctx.fillStyle='#1a1206';
-    ctx.fillRect(f>0?1:-4,-30,2.5,3);
-    // smile
-    ctx.fillStyle='rgba(0,0,0,0.5)';
-    ctx.fillRect(f>0?0:-3,-26,3,1);
+    drawPip(ctx, skin, {facing:p.facing, vy:p.vy, vx:p.vx, landTime:p.landTime, deadT, t:worldTime});
     ctx.restore();
-    // shadow on the ledge below while close
     if(p.vy<=0){
       ctx.fillStyle='rgba(0,0,0,0.2)';
       ctx.beginPath(); ctx.ellipse(px,toY(p.y)+2,9,2.5,0,0,7); ctx.fill();
@@ -820,11 +1081,31 @@ function draw(){
   // particles
   for(const pt of particles){
     ctx.globalAlpha=Math.max(0,1-pt.t/pt.life);
-    ctx.fillStyle=pt.color;
-    ctx.fillRect(pt.x-pt.size/2,toY(pt.y)-pt.size/2,pt.size,pt.size);
+    if(pt.kind==='dust'){
+      ctx.fillStyle=pt.color;
+      ctx.beginPath(); ctx.arc(pt.x,toY(pt.y),pt.size,0,7); ctx.fill();
+    } else if(pt.kind==='spark'){
+      ctx.save(); ctx.translate(pt.x,toY(pt.y)); ctx.rotate(pt.rot);
+      ctx.fillStyle=pt.color; drawStar4(0,0,pt.size); ctx.fill(); ctx.restore();
+    } else {
+      ctx.save(); ctx.translate(pt.x,toY(pt.y)); ctx.rotate(pt.rot);
+      ctx.fillStyle=pt.color; ctx.fillRect(-pt.size/2,-pt.size/2,pt.size,pt.size*0.7); ctx.restore();
+    }
   }
   ctx.globalAlpha=1;
   ctx.restore();
+  // gouache grain over the whole frame
+  ctx.fillStyle=noisePattern; ctx.fillRect(0,0,W,H);
+  // foreground bird: a dark silhouette crossing every ~15s
+  if(birdActive){
+    const bob=Math.sin(worldTime*6)*3;
+    ctx.strokeStyle=C.indigo; ctx.globalAlpha=0.85; ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(birdX-10,birdY+bob);
+    ctx.quadraticCurveTo(birdX-4,birdY-6+bob,birdX,birdY+bob);
+    ctx.quadraticCurveTo(birdX+4,birdY-6+bob,birdX+10,birdY+bob);
+    ctx.stroke(); ctx.globalAlpha=1;
+  }
   updateHUDLite();
 }
 function updateHUDLite(){ /* HUD text is updated in updateHUD */ }
@@ -889,7 +1170,7 @@ function syncChrome(){
   $('hud').style.visibility=inGame?'visible':'hidden';
 }
 
-// ---------- skins picker ----------
+// ---------- skins picker: four small Pip faces ----------
 function renderSkins(){
   const box=$('skins');
   box.innerHTML='';
@@ -899,9 +1180,18 @@ function renderSkins(){
     const req=id==='default'?null:UNLOCKS.find(u=>u.skin===id);
     const b=document.createElement('button');
     b.className='skin'+(id===skinId?' sel':'')+(locked?' locked':'');
-    b.innerHTML='<span class="dot" style="background:'+sk.jacket+'"></span><br>'+sk.name+(locked?'<br>&#128274; '+req.h+'m':'');
+    const c=document.createElement('canvas');
+    c.width=44; c.height=44;
+    b.appendChild(c);
+    const nm=document.createElement('span');
+    nm.textContent=sk.name+(locked?' 🔒 '+req.h+'m':'');
+    b.appendChild(nm);
     if(!locked) b.addEventListener('click',()=>{ skinId=id; persistSkin(); renderSkins(); sfx.click(); });
     box.appendChild(b);
+    const g=c.getContext('2d');
+    g.save(); g.translate(22,42); g.scale(1.3,1.3);
+    drawPip(g, sk, {facing:1, vy:0, vx:0, landTime:0, deadT:0, t:0});
+    g.restore();
   }
 }
 
@@ -954,11 +1244,15 @@ let lastT=performance.now(), acc=0;
 function frame(now){
   requestAnimationFrame(frame);
   let dt=Math.min(0.1,(now-lastT)/1000); lastT=now;
+  // ambient bird: crosses the foreground every ~15s
+  birdT-=dt;
+  if(!birdActive && birdT<=0){ birdActive=true; birdX=-40; birdY=H*(0.12+Math.random()*0.35); }
+  if(birdActive){ birdX+=150*dt; if(birdX>W+40){ birdActive=false; birdT=11+Math.random()*7; } }
   if(state==='play'){
     acc+=dt;
     let n=0;
     while(acc>=STEP && n<8){ step(STEP); acc-=STEP; n++; if(state!=='play'){ acc=0; break; } }
-    for(let i=particles.length-1;i>=0;i--){ const pt=particles[i]; pt.t+=dt; pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.vy-=300*dt; if(pt.t>=pt.life) particles.splice(i,1); }
+    for(let i=particles.length-1;i>=0;i--){ const pt=particles[i]; pt.t+=dt; pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.vy-=300*dt; if(pt.rot!=null) pt.rot+=pt.vr*dt; if(pt.t>=pt.life) particles.splice(i,1); }
     updateHUD();
   } else if(state==='title' && p){
     // attract mode: the climber bounces in place behind the title
@@ -969,9 +1263,10 @@ function frame(now){
   }
   draw();
 }
+buildAssets();
+resize(); // before newRun: spawn() needs real W/SCALE for camX
 newRun(20261107); // attract-mode tower behind the title
 state='title';
-resize();
 updateHUD();
 syncChrome();
 renderSkins();
@@ -1004,6 +1299,7 @@ window.__rr={
   get pots(){ return pots.map(o=>({x:o.x,y:o.y})); },
   get view(){ return {scale:SCALE,camX:camX,camY:camY,offX:OFFX,W:W,H:H}; },
   get audioState(){ return AC?AC.state:'none'; },
+  get worldTime(){ return worldTime; },
   get pointer(){ return {active:pointer.active,worldX:pointer.worldX,slam:pointer.slam}; },
   get snap(){ return {state, height:heightM(), floor:floorIdx, deaths, lives,
     player:p?{x:p.x,y:p.y,vx:p.vx,vy:p.vy,ground:p.ground?p.ground.i:null}:null,
