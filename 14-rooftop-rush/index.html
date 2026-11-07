@@ -3,56 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#14101c">
+<meta name="theme-color" content="#7ec8f7">
 <title>Rooftop Rush — endless climb</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{height:100%;overflow:hidden;background:#14101c;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#e8ecff}
+  html,body{height:100%;overflow:hidden;background:#7ec8f7;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#e8ecff}
   #wrap{position:fixed;inset:0;overflow:hidden}
   canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
   .hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:calc(8px + env(safe-area-inset-top)) 12px 0;pointer-events:none;z-index:5}
   .hud .left{display:flex;flex-direction:column;gap:2px}
-  .hud .h{font-size:30px;font-weight:800;line-height:1;letter-spacing:.5px;text-shadow:0 2px 0 rgba(0,0,0,.5)}
-  .hud .h small{font-size:13px;font-weight:700;color:#ffb347}
-  .hud .sub{font-size:12px;font-weight:700;color:#b9c0e0;letter-spacing:.5px;text-shadow:0 1px 0 rgba(0,0,0,.5)}
+  .hud .h{font-size:30px;font-weight:800;line-height:1;letter-spacing:.5px;text-shadow:0 2px 0 rgba(0,0,0,.45)}
+  .hud .h small{font-size:13px;font-weight:700;color:#ffd23f}
+  .hud .sub{font-size:12px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.55);letter-spacing:.5px}
+  .hud .sub .mult{color:#ffd23f;font-weight:900}
+  .hud .sub .mult.hot{color:#ff9a3c;text-shadow:0 0 8px rgba(255,154,60,.9)}
   .hud .right{display:flex;gap:8px;align-items:center;pointer-events:auto}
-  .pill{background:rgba(10,10,18,.62);border:1px solid rgba(232,236,255,.16);border-radius:999px;padding:5px 10px;font-size:13px;font-weight:700;display:flex;gap:5px;align-items:center}
-  .hearts{font-size:15px;letter-spacing:2px}
+  .pill{background:rgba(10,10,18,.62);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:5px 10px;font-size:13px;font-weight:700;display:flex;gap:5px;align-items:center;color:#fff}
+  .hearts{font-size:15px;letter-spacing:2px;color:#ff5a7a;text-shadow:0 1px 2px rgba(0,0,0,.5)}
   .hearts .off{opacity:.25}
-  .iconbtn{width:38px;height:38px;border-radius:50%;border:1px solid rgba(232,236,255,.2);background:rgba(10,10,18,.62);color:#e8ecff;font-size:16px;font-weight:800;cursor:pointer}
-  .dashind{position:absolute;left:12px;bottom:calc(152px + env(safe-area-inset-bottom));z-index:5;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;letter-spacing:1px;color:#8b93b8}
-  .dashind i{width:12px;height:12px;border-radius:3px;background:#3a3f55;display:block}
-  .dashind.on{color:#4ade80}.dashind.on i{background:#4ade80;box-shadow:0 0 10px #4ade80}
-  /* touch controls */
-  #touch{position:absolute;inset:0;z-index:6;pointer-events:none;display:none}
-  #touch.show{display:block}
-  .stick{position:absolute;left:18px;bottom:calc(18px + env(safe-area-inset-bottom));width:118px;height:118px;border-radius:50%;background:rgba(10,10,18,.4);border:1px solid rgba(232,236,255,.22);pointer-events:auto;touch-action:none}
-  .stick .knob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(232,236,255,.85);box-shadow:0 2px 8px rgba(0,0,0,.5)}
-  .stick .tick{position:absolute;color:rgba(232,236,255,.5);font-weight:800;font-size:15px}
-  .stick .w{left:7px;top:50%;margin-top:-9px}.stick .e{right:7px;top:50%;margin-top:-9px}.stick .s{left:50%;bottom:4px;margin-left:-6px}
-  .tbtns{position:absolute;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));display:flex;gap:12px;align-items:flex-end;pointer-events:auto}
-  .tbtn{border-radius:50%;border:1px solid rgba(232,236,255,.25);color:#fff;font-weight:800;touch-action:none;cursor:pointer}
-  #btnDash{width:64px;height:64px;background:rgba(40,44,66,.85);font-size:12px}
-  #btnJump{width:84px;height:84px;background:rgba(255,150,60,.9);font-size:15px;box-shadow:0 4px 0 rgba(0,0,0,.35)}
-  .tbtn:active{transform:scale(.93)}
+  .iconbtn{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(10,10,18,.62);color:#fff;font-size:16px;font-weight:800;cursor:pointer}
   /* overlays */
-  .overlay{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:rgba(8,6,14,.72);backdrop-filter:blur(2px);padding:20px}
+  .overlay{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:rgba(8,10,24,.62);backdrop-filter:blur(2px);padding:20px}
   .overlay[hidden]{display:none}
   .card{width:min(340px,92vw);text-align:center}
-  .card h1{font-size:44px;font-weight:900;letter-spacing:1px;line-height:.95}
+  .card h1{font-size:44px;font-weight:900;letter-spacing:1px;line-height:.95;color:#fff;text-shadow:0 3px 0 rgba(0,0,0,.25)}
   .card h1 b{color:#ffb347}.card h1 span{color:#ff5a3c}
-  .card h2{font-size:30px;font-weight:900;letter-spacing:1px}
-  .card p{margin:12px 0;color:#b9c0e0;font-size:14px;line-height:1.5}
+  .card h2{font-size:30px;font-weight:900;letter-spacing:1px;color:#fff}
+  .card p{margin:12px 0;color:#dfe6ff;font-size:14px;line-height:1.5}
   .card .best{font-size:13px;font-weight:800;color:#ffd23f;letter-spacing:1px}
-  .big{font-size:52px;font-weight:900;color:#ffb347;line-height:1}
+  .big{font-size:52px;font-weight:900;color:#ffb347;line-height:1;text-shadow:0 2px 0 rgba(0,0,0,.3)}
   .stats{display:flex;justify-content:center;gap:22px;margin:14px 0}
-  .stats .v{font-size:26px;font-weight:800}.stats .k{font-size:11px;letter-spacing:1px;color:#8b93b8;font-weight:700}
+  .stats .v{font-size:26px;font-weight:800;color:#fff}.stats .k{font-size:11px;letter-spacing:1px;color:#b9c0e0;font-weight:700}
   .btn{display:block;width:100%;padding:15px;border-radius:14px;border:0;font-size:17px;font-weight:800;cursor:pointer;margin-top:10px}
   .btn.primary{background:#ffb347;color:#1a1206}
-  .btn.ghost{background:rgba(232,236,255,.12);color:#e8ecff}
+  .btn.ghost{background:rgba(255,255,255,.14);color:#fff}
   .btnrow{display:flex;gap:10px}
   .btnrow .btn{margin-top:10px}
-  .hint{font-size:12px;color:#8b93b8;margin-top:14px;line-height:1.6}
+  .hint{font-size:12px;color:#c8d2f0;margin-top:14px;line-height:1.6}
+  .skins{display:flex;justify-content:center;gap:10px;margin:14px 0 2px}
+  .skin{width:64px;padding:8px 4px 6px;border-radius:12px;border:2px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;cursor:pointer;font-size:10px;font-weight:800;line-height:1.3}
+  .skin .dot{width:26px;height:26px;border-radius:50%;margin:0 auto 4px;border:2px solid rgba(0,0,0,.35)}
+  .skin.sel{border-color:#ffd23f;background:rgba(255,210,63,.18)}
+  .skin.locked{opacity:.55;cursor:default}
   .floorflash{position:absolute;top:22%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;font-size:22px;font-weight:900;letter-spacing:3px;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.7);opacity:0;transition:opacity .3s}
   .floorflash.show{opacity:1}
   .toast{position:absolute;top:16%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;font-size:15px;font-weight:800;color:#ffd23f;text-shadow:0 2px 8px rgba(0,0,0,.7);opacity:0;transition:opacity .25s}
@@ -64,22 +56,14 @@
   <canvas id="cv"></canvas>
   <div class="hud" id="hud">
     <div class="left">
-      <div class="h"><span id="height">0</span><small> m</small></div>
-      <div class="sub"><span id="floorName">BASEMENT</span> &middot; <span id="timer">0:00</span></div>
-      <div class="sub">☠ <span id="deaths">0</span> &nbsp;·&nbsp; <span class="hearts" id="hearts">♥♥♥</span></div>
+      <div class="h"><span id="score">0</span></div>
+      <div class="sub"><span id="height">0</span>m &middot; &#9733;<span id="stars">0</span> &middot; <span class="mult" id="mult">&times;1</span></div>
+      <div class="sub">Next: <span id="nextGoal">10m</span> +25 &nbsp;&middot;&nbsp; <span class="hearts" id="hearts">&#10084;&#10084;&#10084;</span></div>
     </div>
     <div class="right">
-      <span class="pill">BEST <b id="best">0m</b></span>
-      <button class="iconbtn" id="muteBtn" aria-label="Sound">♪</button>
-      <button class="iconbtn" id="pauseBtn" aria-label="Pause">❚❚</button>
-    </div>
-  </div>
-  <div class="dashind" id="dashInd"><i></i>DASH</div>
-  <div id="touch">
-    <div class="stick" id="stick"><span class="tick w">‹</span><span class="tick e">›</span><span class="tick s">⌄</span><span class="knob" id="knob"></span></div>
-    <div class="tbtns">
-      <button class="tbtn" id="btnDash">DASH</button>
-      <button class="tbtn" id="btnJump">▲</button>
+      <span class="pill">BEST <b id="best">0</b></span>
+      <button class="iconbtn" id="muteBtn" aria-label="Sound">&#9834;</button>
+      <button class="iconbtn" id="pauseBtn" aria-label="Pause">&#10074;&#10074;</button>
     </div>
   </div>
   <div class="floorflash" id="floorFlash"></div>
@@ -88,25 +72,27 @@
   <div class="overlay" id="startScr">
     <div class="card">
       <h1><b>ROOFTOP</b><br><span>RUSH</span></h1>
-      <p>An endless tower. Run, jump, dash — climb as high as you can. Falling hurts. The tower never ends.</p>
+      <p>An endless sky tower. You bounce on your own — just steer. Grab stars, don't miss them, climb past every 10m.</p>
       <div class="best" id="startBest"></div>
+      <div class="skins" id="skins"></div>
       <button class="btn primary" id="startBtn">TAP TO CLIMB</button>
       <button class="btn ghost" id="howBtn">HOW TO PLAY</button>
-      <div class="hint" id="howText" hidden>← → move &nbsp;·&nbsp; hold SPACE to jump higher<br>SHIFT dash (once per jump) &nbsp;·&nbsp; ↓ crouch / crawl<br>↓ + jump drops through a ledge &nbsp;·&nbsp; hold ↓ to fall fast<br>Land on a flag to save your floor. 3 lives.</div>
-      <div class="hint">Arrows / WASD + Space + Shift &nbsp;·&nbsp; touch: stick + JUMP / DASH</div>
+      <div class="hint" id="howText" hidden>Drag anywhere to steer &nbsp;·&nbsp; swipe down to slam<br>Stars are 5 pts each — chain them for &times;2 / &times;3<br>Every 10m = +25 bonus. 3 lives.</div>
+      <div class="hint">Drag to steer &nbsp;·&nbsp; swipe down to slam &nbsp;·&nbsp; arrows / A-D + Down on keyboard</div>
     </div>
   </div>
 
   <div class="overlay" id="overScr" hidden>
     <div class="card">
       <h2>CLIMB OVER</h2>
-      <div class="big"><span id="finalH">0</span>m</div>
+      <div class="big"><span id="finalScore">0</span></div>
       <div class="stats">
-        <div><div class="v" id="finalDeaths">0</div><div class="k">DEATHS</div></div>
-        <div><div class="v" id="finalEmbers">0</div><div class="k">EMBERS</div></div>
-        <div><div class="v" id="finalBest">0m</div><div class="k">BEST</div></div>
+        <div><div class="v" id="finalH">0m</div><div class="k">HEIGHT</div></div>
+        <div><div class="v" id="finalStars">0</div><div class="k">STARS</div></div>
+        <div><div class="v" id="finalBest">0</div><div class="k">BEST SCORE</div></div>
       </div>
       <p id="overMsg">The tower wins this time.</p>
+      <p id="unlockMsg" class="best"></p>
       <button class="btn primary" id="retryBtn">CLIMB AGAIN</button>
       <button class="btn ghost" id="menuBtn">MENU</button>
     </div>
@@ -131,28 +117,74 @@
 <script>
 'use strict';
 /* ============================================================
-   Rooftop Rush — hyper-casual endless climber (game 14).
-   Modeled on the Rooftop Reset play study (variable jump, one
-   air dash, crouch/drop-through, flag checkpoints, hazard
-   grammar) with a PROCEDURAL tower: every run is generated
-   from a seed, difficulty ramping with height. All code and
-   art here is original — no extracted assets or code reused.
+   Rooftop Rush v2 — Bounce + Steer (Doodle Jump model).
+   Full rebuild 2026-11-07 (Hans scrapped v1): the climber
+   bounces on its own, you only steer — drag anywhere, or
+   arrows/A-D. Swipe down / Down = slam. No buttons, no
+   joystick, no latched direction (steering is positional:
+   release the finger and velocity decays to 0).
+   Bright sky tower: the sky shifts dawn→day→sunset→dusk→
+   night as you climb. Score = height + stars (5 pts, streak
+   multiplier ×1/×2/×3); +25 every 10m; unlockable climbers
+   at 25/50/100m. All code and art original — no extracted
+   assets or code reused.
    ============================================================ */
 
 // ---------- utils ----------
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
 function mulberry32(seed){let a=seed>>>0;return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function parseRGB(c){
+  if(c[0]==='#'){ const n=parseInt(c.slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+  const m=c.match(/\d+/g); return m?m.slice(0,3).map(Number):[0,0,0];
+}
+function hexLerp(c1,c2,t){
+  const a=parseRGB(c1), b=parseRGB(c2);
+  const r=Math.round(lerp(a[0],b[0],t)), g=Math.round(lerp(a[1],b[1],t)), bb=Math.round(lerp(a[2],b[2],t));
+  return `rgb(${r},${g},${bb})`;
+}
 const WORLD_W=480, STEP=1/120;
-const FLOORS=[
-  {name:'BASEMENT',     wall:'#2a1e2e', mortar:'#1d1420', lamp:'#ffb347', accent:'#8a5a3b', sky:'#17101d'},
-  {name:'BOILER ROOM',  wall:'#33201c', mortar:'#241412', lamp:'#ff9a3c', accent:'#ff7a2f', sky:'#1c100c'},
-  {name:'SERVICE SHAFT',wall:'#1f2a2e', mortar:'#141d20', lamp:'#7fe3d0', accent:'#3fd2c0', sky:'#0e1a1c'},
-  {name:'MACHINE HALL', wall:'#26262e', mortar:'#191922', lamp:'#ffd23f', accent:'#e8b93c', sky:'#14141c'},
-  {name:'ANTENNA DECK', wall:'#232a3a', mortar:'#161c28', lamp:'#8fc2ff', accent:'#6db3ff', sky:'#0f1622'},
-  {name:'ROOFTOP',      wall:'#2e2138', mortar:'#1d1426', lamp:'#d9b8ff', accent:'#b48cff', sky:'#191024'},
-];
+// bounce physics: fixed bounce, 55px apex clears the 46px max ledge gap
+const GRAV=740, BOUNCE_V=285, MAX_FALL=-420, SLAM_GRAV=1410, SLAM_FALL=-490;
+const STEER_SPEED=230, STEER_ACCEL=2600, STEER_DECAY=1800; // 230: worst-case gap (70px edge gap, 46px rise = 0.54s airtime) needs >=211px/s to cross in one bounce from a respawn; v1's dash used to cover this
 const FLOOR_SIZE=5; // ledges per floor
+const FLOORS=[
+  {name:'BASEMENT',     wall:'#f2d8a7', mortar:'#d9b380', ledge:'#e07840', ledgeTop:'#ffb347', trim:'#8a5a3b', sky:'#f7c489'},
+  {name:'BOILER ROOM',  wall:'#f6c9a0', mortar:'#dfa878', ledge:'#c65a3a', ledgeTop:'#ff8a5a', trim:'#7a4a30', sky:'#f7c489'},
+  {name:'SERVICE SHAFT',wall:'#f7e3c0', mortar:'#e0c69a', ledge:'#3f9e8a', ledgeTop:'#7fe3d0', trim:'#4a6a60', sky:'#aee3f7'},
+  {name:'MACHINE HALL', wall:'#f2d3b0', mortar:'#d8b58c', ledge:'#4a6a9e', ledgeTop:'#8fc2ff', trim:'#5a4a3a', sky:'#aee3f7'},
+  {name:'ANTENNA DECK', wall:'#efd3a8', mortar:'#d3b184', ledge:'#7b5cff', ledgeTop:'#b48cff', trim:'#5a4a6a', sky:'#f7b98a'},
+  {name:'ROOFTOP',      wall:'#f7dcb5', mortar:'#e2c193', ledge:'#e8b93c', ledgeTop:'#ffd23f', trim:'#6a5a3a', sky:'#f7b98a'},
+];
+// sky phases by height (metres): dawn -> day -> sunset -> dusk -> night
+const SKY=[
+  {m:0,  top:'#ffd9a0', bot:'#ffb37a', sun:'#fff3c4', stars:0},
+  {m:15, top:'#7ec8f7', bot:'#cfeefb', sun:'#fffbe8', stars:0},
+  {m:40, top:'#ff9e7d', bot:'#ffc9a3', sun:'#ffdf8a', stars:0.15},
+  {m:65, top:'#6b5b9e', bot:'#c98bb0', sun:'#e8b8d0', stars:0.5},
+  {m:90, top:'#0b1030', bot:'#1d2b53', sun:'#e8ecff', stars:1},
+];
+function skyAt(h){
+  let i=0;
+  while(i<SKY.length-2 && h>=SKY[i+1].m) i++;
+  const a=SKY[i], b=SKY[i+1];
+  const t=clamp((h-a.m)/Math.max(1,b.m-a.m),0,1);
+  return {top:hexLerp(a.top,b.top,t), bot:hexLerp(a.bot,b.bot,t), sun:a.sun, stars:lerp(a.stars,b.stars,t)};
+}
+// unlockable climbers: jacket / beanie / skin colours
+const SKINS={
+  default:{name:'Teal',   jacket:'#1f8a7a', beanie:'#ff7a2f', skin:'#e8b88a', pants:'#23283a'},
+  sunset: {name:'Sunset', jacket:'#ff7a2f', beanie:'#ffd23f', skin:'#e8b88a', pants:'#3a2a1a'},
+  night:  {name:'Night',  jacket:'#7b5cff', beanie:'#2b2b4a', skin:'#e8b88a', pants:'#1a1a2e'},
+  golden: {name:'Golden', jacket:'#e8b93c', beanie:'#fff3b0', skin:'#e8b88a', pants:'#4a3a10'},
+};
+const UNLOCKS=[{h:25,skin:'sunset'},{h:50,skin:'night'},{h:100,skin:'golden'}];
+let unlocked={default:true};
+try{ const u=JSON.parse(localStorage.getItem('rr_unlocks')||'{}'); if(u&&typeof u==='object') unlocked=Object.assign({default:true},u); }catch(e){}
+let skinId='default';
+try{ const s=localStorage.getItem('rr_skin'); if(s&&SKINS[s]&&unlocked[s]) skinId=s; }catch(e){}
+function persistUnlocks(){ try{ localStorage.setItem('rr_unlocks',JSON.stringify(unlocked)); }catch(e){} }
+function persistSkin(){ try{ localStorage.setItem('rr_skin',skinId); }catch(e){} }
 
 // ---------- audio ----------
 let AC=null, muted=localStorage.getItem('rr_muted')==='1';
@@ -172,12 +204,13 @@ function tone(f0,f1,dur,type='sine',vol=0.2,delay=0){
   o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+dur+0.05);
 }
 const sfx={
-  jump(){ tone(280,520,0.14,'square',0.10); },
-  dash(){ tone(900,180,0.16,'sawtooth',0.10); },
-  land(){ tone(140,70,0.08,'triangle',0.14); },
+  bounce(){ tone(300,180,0.12,'sine',0.12); },
+  star(){ tone(1180,1560,0.12,'sine',0.14); tone(1560,2090,0.14,'sine',0.08,0.05); },
+  milestone(){ tone(523,523,0.12,'triangle',0.14); tone(659,659,0.12,'triangle',0.14,0.09); tone(784,784,0.2,'triangle',0.14,0.18); },
+  unlock(){ tone(392,392,0.14,'sine',0.15); tone(523,523,0.14,'sine',0.15,0.1); tone(659,659,0.14,'sine',0.15,0.2); tone(784,784,0.24,'sine',0.15,0.3); },
+  slam(){ tone(400,80,0.18,'sawtooth',0.10); },
   death(){ tone(220,55,0.5,'sawtooth',0.16); tone(90,40,0.4,'sine',0.22,0.02); },
   checkpoint(){ tone(660,660,0.12,'sine',0.16); tone(880,880,0.2,'sine',0.16,0.09); },
-  ember(){ tone(1180,1560,0.12,'sine',0.12); },
   crumble(){ tone(160,60,0.25,'triangle',0.12); },
   click(){ tone(600,600,0.06,'square',0.08); },
   floor(){ tone(520,780,0.18,'triangle',0.12); },
@@ -186,26 +219,26 @@ const sfx={
 // ---------- procedural generator ----------
 function newGenerator(seed){
   const rng=mulberry32(seed);
-  const gen={ rng, next:1, prevDir:1, nextGateIn:12+Math.floor(rng()*6), nextEmitIn:18+Math.floor(rng()*8) };
-  return gen;
+  return { rng, next:1, prevDir:1, nextEmitIn:18+Math.floor(rng()*8) };
 }
 // One ledge: {x,y,w,type,travel,phase,crumbleT,flag}
-// diff = height/400, ramps 0..~4 over a long climb.
+// diff = height/400, ramps 0..~4 over a long climb. Bounce apex is 55px,
+// so the 24..46px rises are always clearable; edge gaps stay <= 70px so a
+// bounce (0.54s airtime at the steepest rise) always crosses at 230px/s
+// steer speed, even from a respawn at the ledge's far edge.
 function genLedge(G, prev, diff){
   const rng=G.rng, i=G.next++;
-  const y=prev.y + 24 + rng()*16 + Math.min(6, diff*1.5); // 24..46 rise
+  const y=prev.y + 24 + rng()*16 + Math.min(6, diff*1.5);
   const isFloorStart=(i%FLOOR_SIZE===0);
   let w;
   if(isFloorStart) w=64+rng()*16;
   else w=Math.max(26, 30+rng()*50-diff*1.5);
-  // horizontal placement: zigzag, clamped so the edge gap stays climbable
   let dir = rng()<0.72 ? -G.prevDir : G.prevDir;
   const dx=40+rng()*120;
   let cx=clamp((prev.x+prev.w/2)+dir*dx, 30, WORLD_W-30);
   let x=clamp(cx-w/2, 6, WORLD_W-6-w);
-  // edge-to-edge gap from previous ledge must stay <= 90 (dash-assisted max ~140)
   const gap=edgeGap(prev,{x,w});
-  if(gap>90){ const shift=gap-90; x = prev.x+prev.w/2 > cx ? x+shift : x-shift; x=clamp(x,6,WORLD_W-6-w); }
+  if(gap>70){ const shift=gap-70; x = prev.x+prev.w/2 > cx ? x+shift : x-shift; x=clamp(x,6,WORLD_W-6-w); }
   G.prevDir=dir;
   let type='steel', travel=0, phase=rng()*6.28;
   if(!isFloorStart){
@@ -216,17 +249,13 @@ function genLedge(G, prev, diff){
     else if(r<crumbleP+moveP){ type='move'; travel=Math.min(16, 6+rng()*8+diff*0.3); }
   }
   const L={x,y,w,type,travel,phase,crumbleT:-1,flag:isFloorStart,i};
-  // hazards attached to this ledge
-  L.spike=null; L.vent=null; L.ember=null;
+  L.spike=null; L.vent=null;
   if(!isFloorStart && w>=44 && rng()<Math.min(0.30,0.07+diff*0.012)){
     const edge=rng()<0.5?'left':'right', sw=7+Math.floor(rng()*3);
     L.spike={edge,w:sw};
   }
   if(!isFloorStart && rng()<Math.min(0.22,0.09+diff*0.008)){
     L.vent={offset:3+rng()*Math.max(1,w-12), cycle:2.5+rng()*0.4, phase:rng()*2.9};
-  }
-  if(rng()<0.25){
-    L.ember={x:x+6+rng()*Math.max(1,w-12), y:y+26, got:false};
   }
   return L;
 }
@@ -241,23 +270,26 @@ function ledgeXAt(L,t){ return L.x + (L.type==='move' ? L.travel*Math.sin(t*1.7+
 // ---------- game state ----------
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const $=id=>document.getElementById(id);
-const heightEl=$('height'), floorEl=$('floorName'), timerEl=$('timer'), deathsEl=$('deaths'),
-  heartsEl=$('hearts'), bestEl=$('best'), dashInd=$('dashInd'), floorFlashEl=$('floorFlash'), toastEl=$('toast');
+const scoreEl=$('score'), heightEl=$('height'), starsEl=$('stars'), multEl=$('mult'),
+  nextGoalEl=$('nextGoal'), heartsEl=$('hearts'), bestEl=$('best'),
+  floorFlashEl=$('floorFlash'), toastEl=$('toast');
 let state='title'; // title | play | pause | over
-let G=null;        // generator
+let G=null;
 let seed=0;
-let ledges=[], saws=[], emitters=[], gates=[];
-let p=null;        // player
-let time=0, worldTime=0, deaths=0, lives=3, maxY=0, lifeHigh=0, embers=0, floorIdx=0, checkpointLedge=null;
+let ledges=[], stars=[], saws=[], emitters=[], pots=[];
+let p=null;
+let time=0, worldTime=0, deaths=0, lives=3, maxY=0, floorIdx=0, checkpointLedge=null;
+let starScore=0, bonusScore=0, starCount=0, streak=0, nextMilestone=10;
 let deadT=0, floorFlashT=0, toastT=0, camY=0, shakeT=0;
-let best=0, bestDeaths=0;
-try{ best=parseInt(localStorage.getItem('rr_best')||'0')||0; bestDeaths=parseInt(localStorage.getItem('rr_best_deaths')||'0')||0; }catch(e){}
-function persistBest(){ try{ localStorage.setItem('rr_best',String(best)); localStorage.setItem('rr_best_deaths',String(bestDeaths)); }catch(e){} }
+let bestScore=0, bestHeight=0, runUnlocks=[];
+try{ bestScore=parseInt(localStorage.getItem('rr_best_score')||'0')||0; bestHeight=parseInt(localStorage.getItem('rr_best')||'0')||0; }catch(e){}
+function persistBest(){ try{ localStorage.setItem('rr_best_score',String(bestScore)); localStorage.setItem('rr_best',String(bestHeight)); }catch(e){} }
 addEventListener('pagehide',persistBest);
 document.addEventListener('visibilitychange',()=>{ if(document.hidden) persistBest(); });
 
-const input={left:false,right:false,down:false,up:false,jump:false,jumpEdge:false,cut:false,dashEdge:false,axis:0};
-let jumpHeldPrev=false;
+function heightM(){ return Math.floor(maxY/20); }
+function mult(){ return streak>=6?3:streak>=3?2:1; }
+function score(){ return heightM()+starScore+bonusScore; }
 
 function floorPalette(fi){ return FLOORS[((fi%FLOORS.length)+FLOORS.length)%FLOORS.length]; }
 function floorLabel(fi){
@@ -269,10 +301,11 @@ function floorLabel(fi){
 function newRun(newSeed){
   seed=newSeed==null ? (Math.random()*1e9)|0 : newSeed;
   G=newGenerator(seed);
-  ledges=[{x:24,y:0,w:118,type:'steel',travel:0,phase:0,crumbleT:-1,flag:true,i:0,spike:null,vent:null,ember:null}];
+  ledges=[{x:24,y:0,w:118,type:'steel',travel:0,phase:0,crumbleT:-1,flag:true,i:0,spike:null,vent:null}];
+  stars=[]; saws=[]; emitters=[]; pots=[];
   checkpointLedge=ledges[0];
-  saws=[]; emitters=[]; gates=[];
-  time=0; worldTime=0; deaths=0; lives=3; maxY=0; lifeHigh=0; embers=0; floorIdx=0;
+  time=0; worldTime=0; deaths=0; lives=3; maxY=0; floorIdx=0;
+  starScore=0; bonusScore=0; starCount=0; streak=0; nextMilestone=10; runUnlocks=[];
   deadT=0; floorFlashT=1.75; shakeT=0;
   spawn();
   ensureLedges(700);
@@ -280,10 +313,9 @@ function newRun(newSeed){
 }
 function spawn(){
   const L=checkpointLedge;
-  p={x:L.x+32, y:L.y, vx:0, vy:0, ground:L, facing:1, coyote:0.09, jumpBuffer:0,
-     dash:0, dashReady:true, grace:0.25, landTime:0, crouched:false, fastFall:false,
-     impactTime:0, turnTime:0, braking:false};
-  lifeHigh=L.y; deadT=0;
+  p={x:L.x+32, y:L.y, vx:0, vy:BOUNCE_V, ground:L, facing:1,
+     squash:1, landTime:0, impactTime:0, turnTime:0};
+  deadT=0;
   ledges.forEach(l=>{ if(l.type==='crumble') l.crumbleT=-1; });
   camY=Math.max(0,p.y-200);
   const viewW=W/SCALE;
@@ -295,62 +327,53 @@ function ensureLedges(upToY){
     const diff=prev.y/400;
     const L=genLedge(G,prev,diff);
     ledges.push(L);
-    // saws float in the gap the player jumps through, offset off the direct line
+    // a star hangs in the gap the player bounces through
+    if(G.rng()<0.55){
+      const sx=clamp((prev.x+prev.w/2+L.x+L.w/2)/2 + (G.rng()-0.5)*30, 12, WORLD_W-12);
+      stars.push({x:sx, y:prev.y+(L.y-prev.y)*0.55, got:false, missed:false, spin:G.rng()*6.28});
+    }
+    // spinning fan blades float in the gap, offset off the direct line
     if(G.rng()<Math.min(0.25,0.10+diff*0.01) && L.i>3){
       const midX=(prev.x+prev.w/2+L.x+L.w/2)/2 + (G.rng()<0.5?-1:1)*(45+G.rng()*25);
       saws.push({x:clamp(midX,20,WORLD_W-20), y:prev.y+(L.y-prev.y)*0.5, amp:14+G.rng()*5, rate:2+G.rng()*0.4, phase:G.rng()*6.28});
     }
-    // bolt emitters every ~18-26 ledges, on a wall at head height over a gap
+    // flower-pot emitters every ~18-26 ledges: a pot drops from a window
     if(--G.nextEmitIn<=0){
       G.nextEmitIn=18+Math.floor(G.rng()*8);
-      const leftSide=G.rng()<0.5;
-      emitters.push({x:leftSide?15:WORLD_W-15, y:L.y+22, dir:leftSide?1:-1,
-        reach:110+G.rng()*25, speed:105+G.rng()*30, period:3.2+G.rng(), charge:0.64+G.rng()*0.12, offset:G.rng()*3});
-    }
-    // crawl-through press gates every ~12-18 ledges, only on wide ledges
-    if(--G.nextGateIn<=0){
-      G.nextGateIn=12+Math.floor(G.rng()*6);
-      if(L.w>=68 && !L.flag){
-        const gw=26+Math.floor(G.rng()*6);
-        const gl=L.x+Math.floor((L.w-gw)/2);
-        gates.push({ledge:L, left:gl, right:gl+gw, open:false, lift:0});
-      }
+      const ex=clamp((prev.x+prev.w/2+L.x+L.w/2)/2 + (G.rng()-0.5)*60, 30, WORLD_W-30);
+      emitters.push({x:ex, y:L.y+70, period:3.2+G.rng(), charge:0.64+G.rng()*0.12, offset:G.rng()*3, lastPhase:0});
     }
   }
   // prune far below the checkpoint so arrays stay bounded
   const keepY=checkpointLedge.y-260;
   if(ledges.length>40 && ledges[0].y<keepY){
     const cut=ledges.findIndex(l=>l.y>=keepY);
-    if(cut>0){ ledges.splice(0,cut); saws=saws.filter(s=>s.y>=keepY); emitters=emitters.filter(e=>e.y>=keepY); gates=gates.filter(g=>g.ledge.y>=keepY); }
+    if(cut>0){ ledges.splice(0,cut); stars=stars.filter(s=>s.y>=keepY); saws=saws.filter(s=>s.y>=keepY); emitters=emitters.filter(e=>e.y>=keepY); }
   }
 }
 function die(){
   if(deadT>0 || state!=='play') return;
-  deadT=0.47; deaths++; lives--; sfx.death(); shakeT=0.3;
-  burst(p.x, p.y+13, '#ff5a3c', 14);
+  deadT=0.47; deaths++; lives--; streak=0; sfx.death(); shakeT=0.3;
+  burst(p.x, p.y+17, '#ff5a3c', 14);
   updateHUD();
 }
 function gameOver(){
   state='over';
   syncChrome();
-  const h=Math.floor(maxY/20);
-  if(h>best){ best=h; bestDeaths=deaths; persistBest(); }
-  $('finalH').textContent=h; $('finalDeaths').textContent=deaths;
-  $('finalEmbers').textContent=embers; $('finalBest').textContent=best+'m';
-  $('overMsg').textContent = h>=best&&h>0 ? 'New best height. The tower is still there.' : 'The tower wins this time.';
-  $('overScr').hidden=false; updateHUD();
+  const h=heightM(), sc=score();
+  if(sc>bestScore){ bestScore=sc; persistBest(); }
+  if(h>bestHeight){ bestHeight=h; persistBest(); }
+  $('finalScore').textContent=sc; $('finalH').textContent=h+'m';
+  $('finalStars').textContent=starCount; $('finalBest').textContent=bestScore;
+  $('overMsg').textContent = sc>=bestScore&&sc>0 ? 'New best score. The tower is still there.' : 'The tower wins this time.';
+  $('unlockMsg').textContent = runUnlocks.length ? 'UNLOCKED: '+runUnlocks.join(', ')+' climber'+(runUnlocks.length>1?'s':'')+'!' : '';
+  $('overScr').hidden=false; updateHUD(); renderSkins();
 }
 function sawAt(s,t){ const n=Math.sin(t*s.rate+s.phase)*s.amp; return {x:s.x, y:s.y+n}; }
 function ventAt(v,L,t){
   const phase=(t+v.phase)%v.cycle;
   return {x:ledgeXAt(L,t)+v.offset, y:L.y, active:phase>0.70&&phase<1.43, warning:phase>0.12&&phase<=0.70};
 }
-function boltAt(e,t){
-  const phase=(t+e.offset)%e.period;
-  const d=(phase-e.charge)*e.speed;
-  return {x:e.x+e.dir*Math.max(0,d), y:e.y, phase, warning:phase<e.charge, active:d>=0&&d<=e.reach};
-}
-function gateFor(L){ return gates.find(g=>g.ledge===L); }
 
 // ---------- physics step (fixed 1/120) ----------
 function step(dt){
@@ -364,98 +387,50 @@ function step(dt){
     }
     return;
   }
-  for(const l of ledges) if(l.crumbleT>=0) l.crumbleT+=dt;
-  for(const g of gates) if(g.open) g.lift=Math.min(1,g.lift+dt*2.6);
-  const prevX=p.x, prevY=p.y;
-  p.grace=Math.max(0,p.grace-dt); p.landTime=Math.max(0,p.landTime-dt); p.impactTime=Math.max(0,p.impactTime-dt);
-  p.coyote=Math.max(0,p.coyote-dt); p.jumpBuffer=Math.max(0,p.jumpBuffer-dt);
-  if(input.jumpEdge) p.jumpBuffer=0.13;
-  input.jumpEdge=false;
-  // keyboard axis or touch stick axis
-  const axis=clamp((input.right?1:0)-(input.left?1:0)+input.axis,-1,1);
-  // carry along a moving ledge + walk off / crumble off (ground is a ledge object)
-  if(p.ground!==null){
-    const L=p.ground;
-    const lx=ledgeXAt(L,worldTime);
-    p.x+=lx-ledgeXAt(L,worldTime-dt);
-    if(p.x<lx-3||p.x>lx+L.w+3||L.crumbleT>0.48) p.ground=null;
-    else p.coyote=0.095;
-  }
-  const gateHere=p.ground!==null ? gateFor(p.ground) : null;
-  const inGate=gateHere && !gateHere.open && p.x+3>gateHere.left && p.x-3<gateHere.right;
-  p.crouched=p.ground!==null && (input.down||inGate);
-  // jump / drop-through
-  if(p.jumpBuffer>0 && p.coyote>0){
-    if(p.crouched){
-      if(input.down && p.ground!==0 && !inGate){ p.y-=2.5; p.vy=-85; p.ground=null; p.coyote=0; p.crouched=false; }
-    } else {
-      p.vy=285; p.ground=null; p.coyote=0; p.landTime=0; sfx.jump();
-    }
-    p.jumpBuffer=0;
-  }
-  // jump cut: releasing early shortens the hop (edge-triggered)
-  if(input.cut && p.vy>110){ p.vy*=0.54; }
-  input.cut=false;
-  // dash: one per airtime, recharged on landing; Up held = diagonal boost
-  if(input.dashEdge && p.dashReady && !inGate){
-    if(Math.abs(axis)>0.12) p.facing=Math.sign(axis);
-    p.dash=0.145; p.dashReady=false; p.ground=null; p.coyote=0; p.crouched=false;
-    if(input.up && p.vy<190) p.vy=190;
-    sfx.dash(); burst(p.x,p.y+13,'#8fc2ff',6);
-  }
-  input.dashEdge=false;
-  p.fastFall=Boolean(input.down && p.ground===null && p.dash<=0 && p.vy<=0);
-  const lastY=p.y;
-  if(p.dash>0){
-    p.dash=Math.max(0,p.dash-dt); p.vx=p.facing*312;
-    if(p.dash===0) p.vx=p.facing*125;
+  // ---- steering: positional, never latched ----
+  // drag target (world x) wins; else keyboard direction; else no input.
+  let steer=0;
+  if(pointer.active){
+    steer=clamp((pointer.worldX-p.x)/30,-1,1);
+  } else if(input.left && !input.right) steer=-1;
+  else if(input.right && !input.left) steer=1;
+  if(steer!==0){
+    const want=steer*STEER_SPEED;
+    p.vx+=clamp(want-p.vx,-STEER_ACCEL*dt,STEER_ACCEL*dt);
   } else {
-    const target=axis*(p.crouched?60:130);
-    const accel=axis?(p.ground!==null?1040:670):(p.ground!==null?1250:480);
-    p.vx+=clamp(target-p.vx,-accel*dt,accel*dt);
-    if(p.ground===null) p.vy=Math.max(p.fastFall?-490:-420, p.vy-(p.fastFall?1410:740)*dt);
-    p.y+=p.vy*dt;
-    // facing follows momentum with a small turn delay
-    const dir=Math.abs(axis)>0.12?Math.sign(axis):0;
-    if(dir && dir!==p.facing && p.vx*dir>8){ p.facing=dir; p.turnTime=0.065; }
-    p.turnTime=Math.max(0,p.turnTime-dt);
-    p.braking=Boolean(p.ground!==null && dir===-p.facing && p.vx*p.facing>22);
+    // no input: horizontal velocity decays to exactly 0
+    const d=STEER_DECAY*dt;
+    p.vx = Math.abs(p.vx)<=d ? 0 : p.vx-Math.sign(p.vx)*d;
   }
+  if(Math.abs(p.vx)>20) p.facing=Math.sign(p.vx);
+  p.turnTime=Math.max(0,p.turnTime-dt);
+  // ---- vertical: automatic bounce, slam is a fast drop ----
+  const slamming=input.down||pointer.slam;
+  p.vy-= (slamming?SLAM_GRAV:GRAV)*dt;
+  p.vy=Math.max(slamming?SLAM_FALL:MAX_FALL, p.vy);
+  if(slamming && p.vy<0 && !p.slamSfx){ p.slamSfx=true; sfx.slam(); }
+  if(!slamming) p.slamSfx=false;
+  const lastY=p.y;
+  p.y+=p.vy*dt;
   p.x=clamp(p.x+p.vx*dt,7,WORLD_W-7);
-  // crawl-through press gates: a hanging beam you must crawl under.
-  // Walking in auto-crouches you; jumping or dashing into it is blocked.
-  for(const g of gates){
-    if(g.open) continue;
-    const L=g.ledge, fl=L.y;
-    const onGateLedge=p.ground===L;
-    const effCrouched=p.crouched||onGateLedge;
-    const head=p.y+(effCrouched?15:26);
-    const near=p.x+3>g.left && p.x-3<g.right;
-    if(near && head>fl-68 && p.y<fl+88){
-      if(onGateLedge) p.crouched=true;
-      const inOpening=effCrouched && onGateLedge && p.y>=fl && head<=fl+20;
-      if(inOpening){ /* crawling through */ }
-      else if(prevX<=g.left-3 || prevX>=g.right+3 || onGateLedge){
-        // blocked: push back out the side we came from (nearest edge if already inside)
-        if(onGateLedge && prevX>g.left-3 && prevX<g.right+3) p.x=(p.x-g.left<g.right-p.x)?g.left-3:g.right+3;
-        else p.x=prevX<=g.left-3?g.left-3:g.right+3;
-        p.vx=0; p.dash=0;
-      }
-      else if(prevY>=fl+88 && p.vy<0){ p.y=fl+88; p.vy=0; }
-      else { p.y=fl-68-(effCrouched?15:26); p.vy=Math.min(0,p.vy); }
-    }
-    if(p.x-3>=g.right && onGateLedge){ g.open=true; sfx.floor(); }
-  }
-  // landing
-  if(p.ground===null && p.dash===0 && p.vy<=0){
+  if(p.x<=7||p.x>=WORLD_W-7) p.vx=0;
+  // squash recovers toward 1; stretch while rising
+  p.squash+=(1-p.squash)*Math.min(1,dt*10);
+  p.landTime=Math.max(0,p.landTime-dt);
+  p.impactTime=Math.max(0,p.impactTime-dt);
+  // ---- landing = bounce (one-way ledges: only while falling) ----
+  if(p.vy<=0){
     for(let i=ledges.length-1;i>=0;i--){
       const L=ledges[i];
       if(L.crumbleT>0.48 || lastY<L.y-0.001 || p.y>L.y) continue;
       const lx=ledgeXAt(L,worldTime);
       if(p.x<lx-3 || p.x>lx+L.w+3) continue;
+      // bounce!
       p.impactTime=p.vy<-235?0.085:0;
-      p.ground=L; p.y=L.y; p.vy=0; p.dashReady=true; p.coyote=0.095; p.landTime=0.12; p.fastFall=false;
-      p.crouched=input.down; sfx.land(); dust(p.x,p.y);
+      p.y=L.y; p.vy=BOUNCE_V; p.squash=0.7; p.landTime=0.12;
+      p.ground=L;
+      if(L.type==='move'){ p.x+=ledgeXAt(L,worldTime)-ledgeXAt(L,worldTime-dt); }
+      sfx.bounce(); dust(p.x,p.y);
       if(L.type==='crumble' && L.crumbleT<0){ L.crumbleT=0; sfx.crumble(); }
       const fi=Math.floor(L.i/FLOOR_SIZE);
       if(fi>floorIdx){
@@ -467,44 +442,78 @@ function step(dt){
       break;
     }
   }
-  if(p.ground!==null && p.dash===0) p.y=p.ground.y;
-  // embers
-  for(const L of ledges){
-    if(L.ember && !L.ember.got && Math.abs(p.x-L.ember.x)<10 && p.y<L.ember.y+14 && p.y+26>L.ember.y-6){
-      L.ember.got=true; embers++; sfx.ember(); burst(L.ember.x,L.ember.y,'#ffb347',6);
+  // ---- stars: collect, streak, multiplier; missed = streak reset ----
+  for(const s of stars){
+    if(s.got || s.missed) continue;
+    if(Math.abs(p.x-s.x)<13 && Math.abs(p.y-s.y)<15){
+      s.got=true; starCount++; streak++;
+      const m=mult();
+      starScore+=5*m;
+      sfx.star(); burst(s.x,s.y,'#ffd23f',8);
+      showToast(streak>=3 ? 'STREAK ×'+m+'!' : '+'+(5*m));
+    } else if(s.y<camY-10){
+      s.missed=true;
+      if(streak>0){ streak=0; }
     }
   }
-  lifeHigh=Math.max(lifeHigh,p.y); maxY=Math.max(maxY,p.y);
-  ensureLedges(p.y+700);
-  // fell too far below this life's high point
-  if(p.y<Math.max(-24,lifeHigh-155)){ die(); return; }
-  if(p.grace>0) return;
-  // hazards
-  for(const e of emitters){
-    if(Math.abs(e.y-p.y)>42) continue;
-    const b=boltAt(e,worldTime);
-    if(b.active && Math.abs(p.x-b.x)<7 && p.y+1<b.y+2 && p.y+(p.crouched?15:26)>b.y-2){ die(); return; }
+  // ---- milestones: every 10m = +25, confetti, sky shift (via height) ----
+  const h=heightM();
+  while(h>=nextMilestone){
+    bonusScore+=25;
+    nextMilestone+=10;
+    sfx.milestone();
+    showToast((nextMilestone-10)+'m! +25');
+    confetti();
   }
+  // ---- unlocks: 25/50/100m, persisted ----
+  for(const u of UNLOCKS){
+    if(h>=u.h && !unlocked[u.skin]){
+      unlocked[u.skin]=true; persistUnlocks();
+      runUnlocks.push(SKINS[u.skin].name);
+      sfx.unlock();
+      showToast('UNLOCKED: '+SKINS[u.skin].name+' climber!');
+    }
+  }
+  maxY=Math.max(maxY,p.y);
+  ensureLedges(p.y+700);
+  // ---- flower pots: charge, then drop ----
+  // only drop when the player is near enough to see the charge warning
+  // (an emitter 600px above sniping a player who can't see it is not a
+  // hazard, it's an ambush)
+  for(const e of emitters){
+    const phase=(worldTime+e.offset)%e.period;
+    if(e.lastPhase<e.charge && phase>=e.charge && e.y-p.y<400){
+      pots.push({x:e.x, y:e.y, vy:0});
+    }
+    e.lastPhase=phase;
+  }
+  for(let i=pots.length-1;i>=0;i--){
+    const pot=pots[i];
+    pot.vy=Math.max(-650,pot.vy-GRAV*dt); pot.y+=pot.vy*dt; // terminal velocity: a pot dropped from far above must stay dodgeable
+    if(pot.y<camY-120){ pots.splice(i,1); continue; }
+    if(Math.abs(p.x-pot.x)<11 && p.y<pot.y+10 && p.y+34>pot.y-10){ die(); return; }
+  }
+  // ---- hazards ----
   for(const L of ledges){
     if(L.spike){
       const lx=ledgeXAt(L,worldTime), sx=lx+(L.spike.edge==='right'?L.w-L.spike.w:0);
-      if(p.x+3>sx+1 && p.x-3<sx+L.spike.w-1 && p.y<L.y+6 && p.y+14>L.y+1){ die(); return; }
+      if(p.x+3>sx+1 && p.x-3<sx+L.spike.w-1 && p.y<L.y+10 && p.y+16>L.y+1){ die(); return; }
     }
     if(L.vent){
       const v=ventAt(L.vent,L,worldTime);
-      if(v.active && Math.abs(p.x-(v.x+3))<6 && p.y<v.y+24 && p.y+14>v.y+3){ die(); return; }
+      if(v.active && Math.abs(p.x-(v.x+3))<7 && p.y<v.y+30 && p.y+16>v.y+3){ die(); return; }
     }
   }
   for(const s of saws){
     const b=sawAt(s,worldTime);
-    const dx=b.x-clamp(b.x,p.x-3,p.x+3), dy=b.y-clamp(b.y,p.y+1,p.y+(p.crouched?11:15));
-    if(dx*dx+dy*dy<30){ die(); return; }
+    const dx=b.x-clamp(b.x,p.x-6,p.x+6), dy=b.y-clamp(b.y,p.y+1,p.y+17);
+    if(dx*dx+dy*dy<26*26/4){ die(); return; }
   }
-  // camera
+  // ---- fell below the camera ----
+  if(p.y<camY-30){ die(); return; }
+  // ---- camera: follows the highest point reached, never scrolls down ----
   const visH=viewH();
-  camY=lerp(camY, Math.max(-200, p.y-visH*0.55), 1-Math.pow(0.001,dt));
-  if(p.y<camY-60) camY=p.y-60;
-  // horizontal follow when the view is narrower than the tower
+  camY=lerp(camY, Math.max(-200, maxY-visH*0.55), 1-Math.pow(0.001,dt));
   const viewW=W/SCALE;
   const camXT=viewW>=WORLD_W?0:clamp(p.x-viewW/2,0,WORLD_W-viewW);
   camX=lerp(camX,camXT,1-Math.pow(0.001,dt));
@@ -513,24 +522,25 @@ function showFloorFlash(t){ floorFlashEl.textContent=t; floorFlashEl.classList.a
 function showToast(t){ toastEl.textContent=t; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'),1500); }
 let hudCache={};
 function updateHUD(){
-  const h=Math.floor(maxY/20);
-  const m=Math.floor(time/60), s=Math.floor(time%60);
-  const t=m+':'+String(s).padStart(2,'0');
-  const fl=floorLabel(floorIdx);
+  const h=heightM(), sc=score(), m=mult();
+  if(hudCache.sc!==sc){ hudCache.sc=sc; scoreEl.textContent=sc; }
   if(hudCache.h!==h){ hudCache.h=h; heightEl.textContent=h; }
-  if(hudCache.fl!==fl){ hudCache.fl=fl; floorEl.textContent=fl; }
-  if(hudCache.t!==t){ hudCache.t=t; timerEl.textContent=t; }
-  if(hudCache.d!==deaths){ hudCache.d=deaths; deathsEl.textContent=deaths; }
+  if(hudCache.st!==starCount){ hudCache.st=starCount; starsEl.textContent=starCount; }
+  if(hudCache.m!==m){ hudCache.m=m; multEl.textContent='×'+m; multEl.classList.toggle('hot',m>1); }
+  if(hudCache.ng!==nextMilestone){ hudCache.ng=nextMilestone; nextGoalEl.textContent=nextMilestone+'m'; }
   if(hudCache.l!==lives){ hudCache.l=lives; heartsEl.innerHTML='♥'.repeat(Math.max(0,lives))+'<span class="off">'+'♥'.repeat(3-Math.max(0,lives))+'</span>'; }
-  if(hudCache.b!==best){ hudCache.b=best; bestEl.textContent=best+'m'; }
-  dashInd.classList.toggle('on', !!(p&&p.dashReady));
-  if(hudCache.sb!==best){ hudCache.sb=best; $('startBest').textContent = best>0 ? 'BEST '+best+'m · '+bestDeaths+' DEATHS' : 'NO CLIMB YET — SET THE FIRST MARK'; }
+  if(hudCache.b!==bestScore){ hudCache.b=bestScore; bestEl.textContent=bestScore; }
+  if(hudCache.sb!==bestHeight){ hudCache.sb=bestHeight; $('startBest').textContent = bestHeight>0 ? 'BEST '+bestHeight+'m · SCORE '+bestScore : 'NO CLIMB YET — SET THE FIRST MARK'; }
 }
 
 // ---------- particles ----------
 let particles=[];
 function burst(x,y,color,n){ for(let i=0;i<n;i++) particles.push({x,y,vx:(Math.random()-0.5)*120,vy:Math.random()*120+20,life:0.4+Math.random()*0.3,t:0,color,size:2+Math.random()*3}); }
-function dust(x,y){ for(let i=0;i<5;i++) particles.push({x:x+(Math.random()-0.5)*14,y:y+2,vx:(Math.random()-0.5)*50,vy:10+Math.random()*30,life:0.3,t:0,color:'#9aa0b5',size:2}); }
+function dust(x,y){ for(let i=0;i<5;i++) particles.push({x:x+(Math.random()-0.5)*14,y:y+2,vx:(Math.random()-0.5)*50,vy:10+Math.random()*30,life:0.3,t:0,color:'#fff',size:2}); }
+function confetti(){
+  const cols=['#ffd23f','#ff5a3c','#7fe3d0','#b48cff','#ff9a3c'];
+  for(let i=0;i<40;i++) particles.push({x:p.x+(Math.random()-0.5)*80, y:p.y+30+Math.random()*30, vx:(Math.random()-0.5)*160, vy:40+Math.random()*140, life:0.8+Math.random()*0.6, t:0, color:cols[i%cols.length], size:3+Math.random()*3});
+}
 
 // ---------- rendering ----------
 let W=0,H=0,DPR=1,SCALE=1,OFFX=0,camX=0;
@@ -544,14 +554,37 @@ function resize(){
 }
 addEventListener('resize',resize);
 function viewH(){ return H/SCALE; }
-function brickSeed(fi,ry){ let h=(fi*374761393+ry*668265263)^0x5bf03635; h=Math.imul(h^h>>>13,1274126177); return ((h^h>>>16)>>>0)/4294967296; }
+function rowSeed(fi,ry){ let h=(fi*374761393+ry*668265263)^0x5bf03635; h=Math.imul(h^h>>>13,1274126177); return ((h^h>>>16)>>>0)/4294967296; }
+function drawStar(cx,cy,r,rot){
+  ctx.beginPath();
+  for(let k=0;k<10;k++){
+    const a=rot+k*Math.PI/5, rr=k%2?r*0.45:r;
+    const x=cx+Math.cos(a)*rr, y=cy+Math.sin(a)*rr;
+    if(k===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+}
 function draw(){
   ctx.setTransform(DPR,0,0,DPR,0,0);
   const pal=floorPalette(floorIdx);
-  // sky
+  const sky=skyAt(heightM());
+  // the building reflects the sky: tint the wall toward the sky's low
+  // colour so dawn/day/sunset/dusk/night actually read on the wall — on a
+  // phone the wall covers the screen, so this tint IS the sky shift the
+  // player sees (the gradient sky itself only peeks out on wide screens)
+  const wallCol=hexLerp(pal.wall, sky.bot, 0.55);
+  const mortarCol=hexLerp(pal.mortar, sky.bot, 0.55);
+  // sky (screen space)
   const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,pal.sky); g.addColorStop(1,'#0c0812');
+  g.addColorStop(0,sky.top); g.addColorStop(1,sky.bot);
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // sun / moon
+  ctx.fillStyle=sky.sun;
+  ctx.globalAlpha=0.9;
+  ctx.beginPath(); ctx.arc(W*0.82,H*0.12,26,0,7); ctx.fill();
+  ctx.globalAlpha=0.25;
+  ctx.beginPath(); ctx.arc(W*0.82,H*0.12,40,0,7); ctx.fill();
+  ctx.globalAlpha=1;
   const visH=H/SCALE;
   const viewW=W/SCALE;
   OFFX=viewW>=WORLD_W?(W-WORLD_W*SCALE)/2:0;
@@ -562,196 +595,227 @@ function draw(){
   ctx.scale(SCALE,SCALE);
   const camBottom=camY;
   const toY=wy=>visH-(wy-camBottom);
-  // brick walls
+  // stars in the night sky (world space, deterministic)
+  if(sky.stars>0.03){
+    ctx.fillStyle='#fff';
+    const y0=Math.floor((camBottom-20)/40)*40, y1=camBottom+visH+20;
+    for(let ry=y0;ry<y1;ry+=40){
+      for(let k=0;k<3;k++){
+        const r=rowSeed(999,ry+k*13);
+        if(r<0.6){
+          ctx.globalAlpha=sky.stars*(0.4+r*0.6);
+          const sx=rowSeed(998,ry+k*7)*WORLD_W;
+          ctx.fillRect(sx,toY(ry+rowSeed(997,ry+k*3)*30),2,2);
+        }
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+  // clouds (world space, drift slowly)
+  for(let b=Math.floor((camBottom-100)/300);b*300<camBottom+visH+100;b++){
+    const r1=rowSeed(777,b), r2=rowSeed(776,b);
+    const cx=r1*WORLD_W, cy=b*300+r2*180+((worldTime*3)%300)*0;
+    ctx.fillStyle='rgba(255,255,255,0.55)';
+    ctx.beginPath(); ctx.ellipse(cx,toY(cy),34,11,0,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx+22,toY(cy)+4,24,9,0,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx-24,toY(cy)+5,20,8,0,0,7); ctx.fill();
+  }
+  // building wall
   const y0=Math.floor((camBottom-40)/14)*14, y1=camBottom+visH+40;
-  ctx.fillStyle=pal.wall; ctx.fillRect(0,toY(y1),WORLD_W,y1-y0);
+  ctx.fillStyle=wallCol; ctx.fillRect(0,toY(y1),WORLD_W,y1-y0);
   for(let ry=y0;ry<y1;ry+=14){
     const row=Math.floor(ry/14);
-    ctx.fillStyle=pal.mortar;
+    ctx.fillStyle=mortarCol;
     ctx.fillRect(0,toY(ry+14),WORLD_W,1.5);
     const off=(row%2?14:0);
     for(let bx=off-28;bx<WORLD_W;bx+=28){
       ctx.fillRect(bx,toY(ry+14),1.5,14);
     }
-    // windows + lamps, deterministic per row
-    const r1=brickSeed(floorIdx,ry);
-    if(r1<0.16){
-      const wx=40+brickSeed(floorIdx,ry+7)*380;
-      ctx.fillStyle='#232c3d'; ctx.fillRect(wx,toY(ry+13),26,11);
-      ctx.fillStyle='#5b7290';
-      ctx.fillRect(wx+2,toY(ry+11),10,7); ctx.fillRect(wx+14,toY(ry+11),10,7);
-      ctx.fillStyle='#232c3d'; ctx.fillRect(wx+12,toY(ry+13),2,11);
-    } else if(r1<0.34){
-      const lx=24+brickSeed(floorIdx,ry+11)*430;
-      ctx.fillStyle='#3a2c1c'; ctx.fillRect(lx-3,toY(ry+12),6,5);
-      ctx.fillStyle=pal.lamp; ctx.beginPath(); ctx.arc(lx+0,toY(ry+9),3.2,0,7); ctx.fill();
-      ctx.fillStyle='rgba(255,179,71,0.22)'; ctx.beginPath(); ctx.arc(lx,toY(ry+9),16,0,7); ctx.fill();
+    // windows, deterministic per row: more warm-lit as night falls
+    const r1=rowSeed(floorIdx,ry);
+    if(r1<0.20){
+      const wx=40+rowSeed(floorIdx,ry+7)*380;
+      const lit=rowSeed(floorIdx,ry+3)<0.55+sky.stars*0.35;
+      ctx.fillStyle='#3a2f45'; ctx.fillRect(wx-2,toY(ry+13)-2,30,15);
+      ctx.fillStyle=lit?'#ffd97a':'#5b6a84';
+      ctx.fillRect(wx,toY(ry+13),26,11);
+      ctx.fillStyle='#3a2f45';
+      ctx.fillRect(wx+12,toY(ry+13),2,11); ctx.fillRect(wx,toY(ry+13)+5,26,1.5);
     }
   }
-  // side pipes
-  ctx.fillStyle='#1a1420';
-  ctx.fillRect(2,toY(y1),7,y1-y0); ctx.fillRect(WORLD_W-9,toY(y1),7,y1-y0);
-  ctx.fillStyle='#33283d';
-  ctx.fillRect(4,toY(y1),2,y1-y0); ctx.fillRect(WORLD_W-6,toY(y1),2,y1-y0);
-  // hazard band below the basement floor
-  const bandTop=toY(0);
-  ctx.save();
-  ctx.beginPath(); ctx.rect(0,bandTop,WORLD_W,H-bandTop+2); ctx.clip();
-  ctx.fillStyle='#151019'; ctx.fillRect(0,bandTop,WORLD_W,H-bandTop+2);
-  ctx.fillStyle='#e8b93c';
-  for(let sx=-20;sx<WORLD_W+20;sx+=28){
-    ctx.beginPath();
-    ctx.moveTo(sx,bandTop+26); ctx.lineTo(sx+14,bandTop); ctx.lineTo(sx+28,bandTop); ctx.lineTo(sx+14,bandTop+26);
-    ctx.closePath(); ctx.fill();
-  }
-  ctx.restore();
-  // emitters (wall coils + bolts)
+  // side trim: darker edge strips frame the tower
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  ctx.fillRect(0,toY(y1),8,y1-y0); ctx.fillRect(WORLD_W-8,toY(y1),8,y1-y0);
+  // flower-pot emitters: a window with a wobbling pot while charging
   for(const e of emitters){
     if(e.y<camBottom-60||e.y>camBottom+visH+60) continue;
-    const b=boltAt(e,worldTime);
-    const ex=e.x, ey=toY(e.y);
-    ctx.fillStyle='#241d30'; ctx.fillRect(ex-8,ey-8,16,16);
-    ctx.fillStyle=b.warning?'#ffb347':'#4a4038';
-    ctx.beginPath(); ctx.arc(ex,ey,5,0,7); ctx.fill();
-    if(b.warning){ ctx.fillStyle='rgba(255,179,71,0.35)'; ctx.beginPath(); ctx.arc(ex,ey,9+Math.sin(worldTime*14)*2,0,7); ctx.fill(); }
-    if(b.active){
-      ctx.strokeStyle='rgba(255,150,60,0.5)'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(b.x,ey); ctx.stroke();
-      ctx.fillStyle='#ff9a3c'; ctx.beginPath(); ctx.arc(b.x,ey,4.5,0,7); ctx.fill();
-      ctx.fillStyle='#ffe1a8'; ctx.beginPath(); ctx.arc(b.x,ey,2,0,7); ctx.fill();
+    const ey=toY(e.y);
+    ctx.fillStyle='#3a2f45'; ctx.fillRect(e.x-13,ey-8,26,15);
+    ctx.fillStyle='#ffd97a'; ctx.fillRect(e.x-11,ey-6,22,11);
+    const phase=(worldTime+e.offset)%e.period;
+    const wob=phase<e.charge?Math.sin(worldTime*16)*2:0;
+    ctx.fillStyle='#c65a3a';
+    ctx.beginPath(); ctx.moveTo(e.x-7+wob,ey+2); ctx.lineTo(e.x+7+wob,ey+2); ctx.lineTo(e.x+5+wob,ey+12); ctx.lineTo(e.x-5+wob,ey+12); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#4ade80'; ctx.fillRect(e.x-5+wob,ey-2,10,4);
+    if(phase<e.charge && phase>e.charge-0.35){
+      ctx.fillStyle='#ff5a3c'; ctx.font='900 12px system-ui'; ctx.textAlign='center';
+      ctx.fillText('!',e.x,ey-12);
     }
   }
-  // ledges + their hazards
+  // falling pots
+  for(const pot of pots){
+    const py=toY(pot.y);
+    ctx.fillStyle='#c65a3a';
+    ctx.beginPath(); ctx.moveTo(pot.x-7,py); ctx.lineTo(pot.x+7,py); ctx.lineTo(pot.x+5,py+10); ctx.lineTo(pot.x-5,py+10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#4ade80'; ctx.fillRect(pot.x-5,py-4,10,4);
+  }
+  // ledges: balconies / awnings / AC units
   for(const L of ledges){
     const lx=ledgeXAt(L,worldTime), ly=toY(L.y);
-    if(ly<-40||ly>H+40) continue;
+    if(ly<-60||ly>H+60) continue;
     const sinking=L.crumbleT>=0?Math.min(6,L.crumbleT*14):0;
     const wob=L.crumbleT>=0&&L.crumbleT<0.48?Math.sin(worldTime*40)*1.2:0;
     ctx.save(); ctx.translate(wob,sinking);
-    // grate slab
-    ctx.fillStyle=L.type==='crumble'?'#5a3a26':'#2c2f3d';
-    ctx.fillRect(lx,ly,L.w,12);
-    ctx.fillStyle=L.type==='crumble'?'#8a5a35':'#c8ccd8';
-    ctx.fillRect(lx,ly,L.w,4.5);
-    ctx.fillStyle='rgba(0,0,0,0.35)';
-    for(let gx=lx+5;gx<lx+L.w-3;gx+=9) ctx.fillRect(gx,ly+5,2,5);
-    ctx.fillStyle='#9aa0b5';
-    ctx.fillRect(lx+2,ly+1,2,2); ctx.fillRect(lx+L.w-4,ly+1,2,2);
-    if(L.type==='move'){ ctx.fillStyle='#3a3f55'; ctx.fillRect(lx,ly+12,L.w,2); }
-    if(L.type==='crumble' && L.crumbleT>=0){
-      ctx.strokeStyle='rgba(255,90,60,0.8)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(lx+L.w*0.3,ly); ctx.lineTo(lx+L.w*0.45,ly+10); ctx.moveTo(lx+L.w*0.6,ly); ctx.lineTo(lx+L.w*0.75,ly+10); ctx.stroke();
+    if(L.type==='crumble'){
+      // striped awning, tilted
+      ctx.save(); ctx.translate(lx+L.w/2,ly+4); ctx.rotate(-0.06);
+      ctx.fillStyle='#e8e0d0'; ctx.fillRect(-L.w/2,0,L.w,7);
+      ctx.fillStyle=pal.ledge;
+      for(let sx=-L.w/2;sx<L.w/2;sx+=14) ctx.fillRect(sx,0,7,7);
+      ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(-L.w/2,5,L.w,2);
+      ctx.restore();
+      if(L.crumbleT>=0){
+        ctx.strokeStyle='rgba(255,90,60,0.9)'; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.moveTo(lx+L.w*0.3,ly); ctx.lineTo(lx+L.w*0.45,ly+9); ctx.moveTo(lx+L.w*0.6,ly); ctx.lineTo(lx+L.w*0.75,ly+9); ctx.stroke();
+      }
+    } else if(L.type==='move'){
+      // AC unit: grey box with a spinning fan
+      ctx.fillStyle='#5a6274'; ctx.fillRect(lx,ly,L.w,13);
+      ctx.fillStyle='#8a93a8'; ctx.fillRect(lx,ly,L.w,4);
+      ctx.fillStyle='#2c3040'; ctx.beginPath(); ctx.arc(lx+L.w/2,ly+8,5,0,7); ctx.fill();
+      ctx.save(); ctx.translate(lx+L.w/2,ly+8); ctx.rotate(worldTime*9);
+      ctx.strokeStyle='#d7dbe8'; ctx.lineWidth=1.5;
+      for(let k=0;k<3;k++){ ctx.rotate(Math.PI*2/3); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-4.5); ctx.stroke(); }
+      ctx.restore();
+      ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fillRect(lx,ly+13,L.w,2);
+    } else {
+      // balcony: chunky slab, bright top, dark outline, railing
+      ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(lx+1,ly+2,L.w,13);
+      ctx.fillStyle=pal.ledge; ctx.fillRect(lx,ly,L.w,12);
+      ctx.fillStyle=pal.ledgeTop; ctx.fillRect(lx,ly,L.w,4.5);
+      ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.fillRect(lx,ly,L.w,1.5);
+      ctx.strokeStyle='rgba(0,0,0,0.4)'; ctx.lineWidth=1;
+      ctx.strokeRect(lx+0.5,ly+0.5,L.w-1,11);
+      // railing
+      ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(lx+3,ly); ctx.lineTo(lx+3,ly-7); ctx.moveTo(lx+L.w-3,ly); ctx.lineTo(lx+L.w-3,ly-7); ctx.moveTo(lx,ly-7); ctx.lineTo(lx+L.w,ly-7); ctx.stroke();
     }
-    // brackets
-    ctx.fillStyle='#1c1f2a';
-    ctx.beginPath(); ctx.moveTo(lx+4,ly+12); ctx.lineTo(lx+10,ly+12); ctx.lineTo(lx+4,ly+18); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(lx+L.w-4,ly+12); ctx.lineTo(lx+L.w-10,ly+12); ctx.lineTo(lx+L.w-4,ly+18); ctx.closePath(); ctx.fill();
-    // spike
+    // antenna spikes on the edge
     if(L.spike){
       const sx=lx+(L.spike.edge==='right'?L.w-L.spike.w:0);
-      ctx.fillStyle='#d7dbe8';
+      ctx.fillStyle='#3a2f45';
       for(let k=0;k<3;k++){
         const tx=sx+k*(L.spike.w/3);
-        ctx.beginPath(); ctx.moveTo(tx,ly); ctx.lineTo(tx+L.spike.w/6,ly-8); ctx.lineTo(tx+L.spike.w/3,ly); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(tx,ly); ctx.lineTo(tx+L.spike.w/6,ly-13); ctx.lineTo(tx+L.spike.w/3,ly); ctx.closePath(); ctx.fill();
       }
+      ctx.fillStyle='#ff5a3c';
+      ctx.beginPath(); ctx.arc(sx+L.spike.w/2,ly-14,1.8,0,7); ctx.fill();
     }
-    // vent
+    // AC steam vent
     if(L.vent){
       const v=ventAt(L.vent,L,worldTime);
-      ctx.fillStyle='#3a2c1c'; ctx.fillRect(v.x-4,ly-3,12,4);
-      ctx.fillStyle=v.active?'#ff5a3c':v.warning?'#ffb347':'#6b5a44';
-      ctx.fillRect(v.x-2,ly-5,8,3);
+      ctx.fillStyle='#5a6274'; ctx.fillRect(v.x-5,ly-8,13,9);
+      ctx.fillStyle='#8a93a8'; ctx.fillRect(v.x-5,ly-8,13,3);
       if(v.active){
-        ctx.fillStyle='rgba(255,240,220,0.85)';
-        ctx.fillRect(v.x-1,ly-26,7,22);
-        ctx.fillStyle='rgba(255,150,60,0.5)';
-        ctx.fillRect(v.x-3,ly-30,11,6);
+        ctx.fillStyle='rgba(255,255,255,0.85)';
+        for(let k=0;k<3;k++){ const px2=v.x+3+Math.sin(worldTime*6+k)*3; ctx.beginPath(); ctx.arc(px2,ly-14-k*9,4.5,0,7); ctx.fill(); }
+        ctx.fillStyle='rgba(255,255,255,0.4)';
+        ctx.beginPath(); ctx.arc(v.x+3,ly-36,8,0,7); ctx.fill();
       } else if(v.warning){
-        ctx.fillStyle='rgba(255,179,71,0.4)';
-        ctx.fillRect(v.x-1,ly-12,7,8);
+        ctx.fillStyle='rgba(255,179,71,0.6)';
+        ctx.beginPath(); ctx.arc(v.x+3,ly-12,3.5,0,7); ctx.fill();
       }
-    }
-    // ember pickup
-    if(L.ember && !L.ember.got){
-      const fl=Math.sin(worldTime*5+L.i)*1.5;
-      const ex=L.ember.x, ey=toY(L.ember.y+fl);
-      ctx.fillStyle='#ff9a3c';
-      ctx.beginPath(); ctx.moveTo(ex,ey-7); ctx.quadraticCurveTo(ex+5,ey+1,ex,ey+4); ctx.quadraticCurveTo(ex-5,ey+1,ex,ey-7); ctx.fill();
-      ctx.fillStyle='#ffe1a8'; ctx.beginPath(); ctx.arc(ex,ey,1.8,0,7); ctx.fill();
     }
     // flag checkpoint
     if(L.flag){
       const fx=lx+6, fy=ly;
-      ctx.strokeStyle='#c8ccd8'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx,fy-26); ctx.stroke();
+      ctx.strokeStyle='#3a2f45'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx,fy-30); ctx.stroke();
       const wave=Math.sin(worldTime*6+L.i)*2;
       ctx.fillStyle='#4ade80';
-      ctx.beginPath(); ctx.moveTo(fx,fy-26); ctx.lineTo(fx+13,fy-22+wave); ctx.lineTo(fx,fy-18); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(fx,fy-30); ctx.lineTo(fx+15,fy-25+wave); ctx.lineTo(fx,fy-20); ctx.closePath(); ctx.fill();
     }
     ctx.restore();
   }
-  // press gates
-  for(const g of gates){
-    const L=g.ledge, fl=L.y;
-    if(fl<camBottom-100||fl>camBottom+visH+100) continue;
-    const lift=g.lift*70;
-    const gy=toY(fl+88)-lift;
-    ctx.fillStyle='#241d30'; ctx.fillRect(g.left-3,gy,g.right-g.left+6,4);
-    ctx.fillStyle='#3a2f45'; ctx.fillRect(g.left,gy+4,g.right-g.left,88-4-lift*0+0);
-    ctx.fillStyle='#e8b93c';
-    for(let sx=g.left;sx<g.right;sx+=10){ ctx.fillRect(sx,gy+4,5,4); }
-    ctx.fillStyle='#241d30'; ctx.fillRect(g.left-2,toY(fl)-2,4,4); ctx.fillRect(g.right-2,toY(fl)-2,4,4);
+  // stars
+  for(const s of stars){
+    if(s.got || s.missed) continue;
+    if(s.y<camBottom-40||s.y>camBottom+visH+40) continue;
+    const sy=toY(s.y+Math.sin(worldTime*4+s.spin)*2);
+    const pulse=1+Math.sin(worldTime*5+s.spin)*0.12;
+    ctx.save(); ctx.translate(s.x,sy); ctx.scale(pulse,pulse);
+    ctx.fillStyle='rgba(255,210,63,0.35)';
+    drawStar(0,0,13,worldTime*0.6+s.spin); ctx.fill();
+    ctx.fillStyle='#ffd23f';
+    drawStar(0,0,8.5,worldTime*0.6+s.spin); ctx.fill();
+    ctx.fillStyle='#fff3b0';
+    drawStar(0,0,4,worldTime*0.6+s.spin); ctx.fill();
+    ctx.restore();
   }
-  // saws
+  // spinning fan blades
   for(const s of saws){
     const b=sawAt(s,worldTime);
     if(b.y<camBottom-40||b.y>camBottom+visH+40) continue;
     const bx=b.x, by=toY(b.y);
     ctx.save(); ctx.translate(bx,by); ctx.rotate(worldTime*7);
-    ctx.fillStyle='#c8ccd8';
-    for(let k=0;k<8;k++){ ctx.rotate(Math.PI/4); ctx.beginPath(); ctx.moveTo(0,-9); ctx.lineTo(3,-13); ctx.lineTo(-3,-13); ctx.closePath(); ctx.fill(); }
+    ctx.fillStyle='#e8ecff';
+    for(let k=0;k<3;k++){ ctx.rotate(Math.PI*2/3); ctx.beginPath(); ctx.ellipse(0,-8,4,8,0,0,7); ctx.fill(); }
     ctx.restore();
-    ctx.fillStyle='#8a8fa8'; ctx.beginPath(); ctx.arc(bx,by,7,0,7); ctx.fill();
-    ctx.fillStyle='#3a3f55'; ctx.beginPath(); ctx.arc(bx,by,2.5,0,7); ctx.fill();
+    ctx.fillStyle='#5a6274'; ctx.beginPath(); ctx.arc(bx,by,5,0,7); ctx.fill();
+    ctx.fillStyle='#ffd23f'; ctx.beginPath(); ctx.arc(bx,by,2,0,7); ctx.fill();
   }
-  // player (original climber: orange beanie, teal jacket)
+  // player: chunky climber with squash & stretch
   if(state!=='over' || deadT>0){
     const px=p.x, py=toY(p.y);
-    const crouch=p.crouched, dashing=p.dash>0;
-    const h=crouch?15:26;
-    const bob=p.ground!==null&&Math.abs(p.vx)>20?Math.sin(worldTime*16)*1.2:0;
+    const skin=SKINS[skinId]||SKINS.default;
+    const stretch=p.vy>60?1+Math.min(0.12,p.vy/285*0.12):1;
+    const sqY=p.squash*stretch, sqX=1+(1-p.squash)*0.6;
     const flash=deadT>0&&Math.floor(worldTime*20)%2===0;
     ctx.save(); ctx.translate(px,py);
-    // dark backing plate so the climber reads against the brick
-    ctx.fillStyle='rgba(8,6,14,0.5)';
-    ctx.fillRect(-7,-h-3,14,h+12);
     if(flash) ctx.globalAlpha=0.35;
-    if(dashing){ ctx.scale(1.25,0.8); }
+    ctx.scale(sqX,sqY);
     const f=p.facing;
     // legs
-    ctx.fillStyle='#23283a';
-    if(p.ground===null){ ctx.fillRect(-4,-8,3,8); ctx.fillRect(1,-6,3,6); }
-    else if(crouch){ ctx.fillRect(-5,-5,10,5); }
-    else { const s1=Math.sin(worldTime*16)*3*(Math.abs(p.vx)>20?1:0); ctx.fillRect(-4+s1*0.4,-9,3,9); ctx.fillRect(1-s1*0.4,-9,3,9); }
-    // jacket
-    ctx.fillStyle='#1f8a7a';
-    ctx.fillRect(-5,-h+9+bob*0.3,10,crouch?6:11);
+    ctx.fillStyle=skin.pants;
+    if(p.vy>40){ ctx.fillRect(-5,-10,4,10); ctx.fillRect(1,-8,4,8); }
+    else { const s1=Math.sin(worldTime*14)*2.5*(Math.abs(p.vx)>20?1:0); ctx.fillRect(-5+s1*0.4,-11,4,11); ctx.fillRect(1-s1*0.4,-11,4,11); }
+    // body (jacket)
+    ctx.fillStyle=skin.jacket;
+    ctx.fillRect(-7,-24,14,14);
+    ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect(-7,-12,14,2);
     // arms
-    ctx.fillStyle='#176b5e';
-    ctx.fillRect(f>0?4:-7,-h+10,3,7);
-    ctx.fillRect(f>0?-7:4,-h+10,3,7);
+    ctx.fillStyle=skin.jacket;
+    ctx.fillRect(f>0?6:-10,-23,4,9);
+    ctx.fillRect(f>0?-10:6,-23,4,9);
     // head + beanie
-    ctx.fillStyle='#e8b88a';
-    ctx.fillRect(-4,-h+1,8,8);
-    ctx.fillStyle='#ff7a2f';
-    ctx.fillRect(-5,-h-1,10,4);
-    ctx.fillRect(-5,-h-2,10,2);
+    ctx.fillStyle=skin.skin;
+    ctx.fillRect(-6,-33,12,10);
+    ctx.fillStyle=skin.beanie;
+    ctx.fillRect(-7,-36,14,5);
+    ctx.fillStyle=skin.beanie;
+    ctx.fillRect(-3,-39,6,4);
     // eye
     ctx.fillStyle='#1a1206';
-    ctx.fillRect(f>0?1:-3,-h+4,2,2);
+    ctx.fillRect(f>0?1:-4,-30,2.5,3);
+    // smile
+    ctx.fillStyle='rgba(0,0,0,0.5)';
+    ctx.fillRect(f>0?0:-3,-26,3,1);
     ctx.restore();
-    // shadow
-    if(p.ground!==null){ ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(px,toY(p.y)+1,7,2,0,0,7); ctx.fill(); }
+    // shadow on the ledge below while close
+    if(p.vy<=0){
+      ctx.fillStyle='rgba(0,0,0,0.2)';
+      ctx.beginPath(); ctx.ellipse(px,toY(p.y)+2,9,2.5,0,0,7); ctx.fill();
+    }
   }
   // particles
   for(const pt of particles){
@@ -761,19 +825,44 @@ function draw(){
   }
   ctx.globalAlpha=1;
   ctx.restore();
-  // floor flash text is DOM; nothing else here
   updateHUDLite();
 }
-function updateHUDLite(){
-  // cheap per-frame HUD bits
-  dashInd.classList.toggle('on', !!(p&&p.dashReady&&state==='play'));
-}
+function updateHUDLite(){ /* HUD text is updated in updateHUD */ }
 
-// ---------- input ----------
-const keys={};
-function pressJump(){ if(!input.jump){ input.jump=true; input.jumpEdge=true; } }
-function releaseJump(){ if(input.jump){ input.jump=false; input.cut=true; } }
-function pressDash(){ input.dashEdge=true; }
+// ---------- input: drag anywhere to steer, swipe down to slam ----------
+// Steering is POSITIONAL: the climber chases the finger's x. Releasing
+// the finger clears the target entirely — no latched direction, ever.
+const input={left:false,right:false,down:false};
+const pointer={active:false,id:null,worldX:0,slam:false,downX:0,downY:0};
+function screenToWorldX(clientX){
+  return (clientX-OFFX)/SCALE+camX;
+}
+function clearInput(){ input.left=false; input.right=false; input.down=false; pointer.active=false; pointer.slam=false; pointer.id=null; }
+addEventListener('blur',clearInput);
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) clearInput(); });
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  unlockAudio();
+  if(state!=='play') return;
+  pointer.active=true; pointer.id=e.pointerId; pointer.slam=false;
+  pointer.downX=e.clientX; pointer.downY=e.clientY;
+  pointer.worldX=screenToWorldX(e.clientX);
+  try{ cv.setPointerCapture(e.pointerId); }catch(err){}
+});
+cv.addEventListener('pointermove',e=>{
+  if(!pointer.active || e.pointerId!==pointer.id) return;
+  pointer.worldX=screenToWorldX(e.clientX);
+  // swipe down = slam: a mostly-vertical downward drag of 50px+
+  const dy=e.clientY-pointer.downY, dx=e.clientX-pointer.downX;
+  if(!pointer.slam && dy>50 && Math.abs(dy)>Math.abs(dx)*1.5) pointer.slam=true;
+});
+function pointerEnd(e){
+  if(e.pointerId!==pointer.id) return;
+  pointer.active=false; pointer.slam=false; pointer.id=null;
+}
+cv.addEventListener('pointerup',pointerEnd);
+cv.addEventListener('pointercancel',pointerEnd);
+cv.addEventListener('lostpointercapture',pointerEnd);
 addEventListener('keydown',e=>{
   if(e.repeat) return;
   const k=e.key;
@@ -781,9 +870,6 @@ addEventListener('keydown',e=>{
   if(k==='ArrowLeft'||k==='a'||k==='A') input.left=true;
   else if(k==='ArrowRight'||k==='d'||k==='D') input.right=true;
   else if(k==='ArrowDown'||k==='s'||k==='S') input.down=true;
-  else if(k==='ArrowUp'||k==='w'||k==='W'){ input.up=true; pressJump(); }
-  else if(k===' ') pressJump();
-  else if(k==='Shift'||k==='x'||k==='X') pressDash();
   else if(k==='r'||k==='R'){ if(state==='play'){ die(); } }
   else if(k==='p'||k==='P'||k==='Escape'){ togglePause(); }
   else if(k==='m'||k==='M'){ toggleMute(); }
@@ -795,48 +881,28 @@ addEventListener('keyup',e=>{
   if(k==='ArrowLeft'||k==='a'||k==='A') input.left=false;
   else if(k==='ArrowRight'||k==='d'||k==='D') input.right=false;
   else if(k==='ArrowDown'||k==='s'||k==='S') input.down=false;
-  else if(k==='ArrowUp'||k==='w'||k==='W') input.up=false;
-  if(k===' '||k==='ArrowUp'||k==='w'||k==='W') releaseJump();
 });
-// touch joystick
-const touchEl=$('touch'), stickEl=$('stick'), knobEl=$('knob');
-let stickId=null, stickCX=0, stickCY=0;
-function stickCenter(){ const r=stickEl.getBoundingClientRect(); return {x:r.left+r.width/2, y:r.top+r.height/2, rad:r.width/2}; }
-stickEl.addEventListener('pointerdown',e=>{
-  e.preventDefault(); stickId=e.pointerId; stickEl.setPointerCapture(e.pointerId);
-  const c=stickCenter(); stickCX=c.x; stickCY=c.y; stickMove(e);
-});
-stickEl.addEventListener('pointermove',e=>{ if(e.pointerId===stickId) stickMove(e); });
-function stickEnd(e){ if(e.pointerId===stickId){ stickId=null; input.axis=0; input.down=false; input.left=false; input.right=false; knobEl.style.transform=''; } }
-stickEl.addEventListener('pointerup',stickEnd); stickEl.addEventListener('pointercancel',stickEnd);
-stickEl.addEventListener('lostpointercapture',stickEnd);
-// never leave a direction latched: clear all input when the page loses focus
-function clearInput(){ input.left=false; input.right=false; input.down=false; input.up=false; input.axis=0; input.jump=false; }
-addEventListener('blur',clearInput);
-document.addEventListener('visibilitychange',()=>{ if(document.hidden) clearInput(); });
-function stickMove(e){
-  const c=stickCenter();
-  let dx=e.clientX-c.x, dy=e.clientY-c.y;
-  const d=Math.hypot(dx,dy), max=c.rad-8;
-  if(d>max){ dx*=max/d; dy*=max/d; }
-  knobEl.style.transform=`translate(${dx}px,${dy}px)`;
-  input.axis=clamp(dx/max,-1,1);
-  input.down=dy>max*0.45;
-  input.left=input.axis<-0.25; input.right=input.axis>0.25;
-}
-$('btnJump').addEventListener('pointerdown',e=>{ e.preventDefault(); unlockAudio(); pressJump(); });
-$('btnJump').addEventListener('pointerup',()=>releaseJump());
-$('btnJump').addEventListener('pointercancel',()=>releaseJump());
-$('btnJump').addEventListener('pointerleave',()=>releaseJump());
-$('btnDash').addEventListener('pointerdown',e=>{ e.preventDefault(); unlockAudio(); pressDash(); });
-// HUD + touch controls belong to gameplay only: hide them behind the
-// title / game-over screens so they never bleed through the overlay.
-const touchCapable=('ontouchstart' in window)||navigator.maxTouchPoints>0;
+// HUD + touch chrome belongs to gameplay only: hide it behind the
+// title / game-over screens so it never bleeds through the overlay.
 function syncChrome(){
   const inGame=state==='play'||state==='pause';
   $('hud').style.visibility=inGame?'visible':'hidden';
-  $('dashInd').style.visibility=inGame?'visible':'hidden';
-  touchEl.classList.toggle('show', inGame && touchCapable);
+}
+
+// ---------- skins picker ----------
+function renderSkins(){
+  const box=$('skins');
+  box.innerHTML='';
+  for(const id of Object.keys(SKINS)){
+    const sk=SKINS[id];
+    const locked=!unlocked[id];
+    const req=id==='default'?null:UNLOCKS.find(u=>u.skin===id);
+    const b=document.createElement('button');
+    b.className='skin'+(id===skinId?' sel':'')+(locked?' locked':'');
+    b.innerHTML='<span class="dot" style="background:'+sk.jacket+'"></span><br>'+sk.name+(locked?'<br>&#128274; '+req.h+'m':'');
+    if(!locked) b.addEventListener('click',()=>{ skinId=id; persistSkin(); renderSkins(); sfx.click(); });
+    box.appendChild(b);
+  }
 }
 
 // ---------- states & buttons ----------
@@ -856,7 +922,7 @@ function pauseGame(){
   if(state!=='play') return;
   state='pause';
   syncChrome();
-  $('pauseInfo').textContent=Math.floor(maxY/20)+'m · '+deaths+' deaths · '+floorLabel(floorIdx);
+  $('pauseInfo').textContent=score()+' pts · '+heightM()+'m · '+deaths+' deaths · '+floorLabel(floorIdx);
   $('pauseScr').hidden=false;
 }
 function resumeGame(){
@@ -873,7 +939,7 @@ function toggleMute(){
 $('startBtn').addEventListener('click',startGame);
 $('howBtn').addEventListener('click',()=>{ const h=$('howText'); h.hidden=!h.hidden; });
 $('retryBtn').addEventListener('click',startGame);
-$('menuBtn').addEventListener('click',()=>{ $('overScr').hidden=true; state='title'; $('startScr').hidden=false; updateHUD(); syncChrome(); });
+$('menuBtn').addEventListener('click',()=>{ $('overScr').hidden=true; state='title'; $('startScr').hidden=false; updateHUD(); syncChrome(); renderSkins(); });
 $('resumeBtn').addEventListener('click',resumeGame);
 $('pauseBtn').addEventListener('click',()=>{ unlockAudio(); togglePause(); });
 $('muteBtn').addEventListener('click',toggleMute);
@@ -894,8 +960,12 @@ function frame(now){
     while(acc>=STEP && n<8){ step(STEP); acc-=STEP; n++; if(state!=='play'){ acc=0; break; } }
     for(let i=particles.length-1;i>=0;i--){ const pt=particles[i]; pt.t+=dt; pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.vy-=300*dt; if(pt.t>=pt.life) particles.splice(i,1); }
     updateHUD();
-  } else {
-    input.jumpEdge=false; input.dashEdge=false; input.cut=false;
+  } else if(state==='title' && p){
+    // attract mode: the climber bounces in place behind the title
+    worldTime+=dt;
+    p.vy-=GRAV*dt; p.y+=p.vy*dt;
+    if(p.vy<=0 && p.y<=p.ground.y){ p.y=p.ground.y; p.vy=BOUNCE_V; p.squash=0.7; }
+    p.squash+=(1-p.squash)*Math.min(1,dt*10);
   }
   draw();
 }
@@ -904,27 +974,47 @@ state='title';
 resize();
 updateHUD();
 syncChrome();
+renderSkins();
 requestAnimationFrame(frame);
 
 // ---------- debug hook ----------
 window.__rr={
   get state(){ return state; },
-  get height(){ return Math.floor(maxY/20); },
+  get height(){ return heightM(); },
+  get score(){ return score(); },
+  get stars(){ return starCount; },
+  get streak(){ return streak; },
+  get mult(){ return mult(); },
+  get starScore(){ return starScore; },
+  get bonusScore(){ return bonusScore; },
+  get nextMilestone(){ return nextMilestone; },
   get deaths(){ return deaths; },
   get lives(){ return lives; },
   get seed(){ return seed; },
   get floor(){ return floorIdx; },
   get floorName(){ return floorLabel(floorIdx); },
   get checkpoint(){ return checkpointLedge?checkpointLedge.i:0; },
-  get embers(){ return embers; },
-  get player(){ return p?{x:p.x,y:p.y,vx:p.vx,vy:p.vy,ground:p.ground?p.ground.i:null,dashReady:p.dashReady,crouched:p.crouched}:null; },
-  get ledges(){ return ledges.map(l=>({i:l.i,x:l.x,y:l.y,w:l.w,type:l.type,flag:!!l.flag,crumbleT:l.crumbleT})); },
-  get gates(){ return gates.map(g=>({left:g.left,right:g.right,ledge:g.ledge.i,open:g.open})); },
+  get skin(){ return skinId; },
+  get unlocked(){ return Object.assign({},unlocked); },
+  get player(){ return p?{x:p.x,y:p.y,vx:p.vx,vy:p.vy,ground:p.ground?p.ground.i:null,squash:p.squash}:null; },
+  get ledges(){ return ledges.map(l=>({i:l.i,x:l.x,y:l.y,w:l.w,type:l.type,flag:!!l.flag,crumbleT:l.crumbleT,spike:l.spike||null,vent:l.vent?{offset:l.vent.offset,cycle:l.vent.cycle,phase:l.vent.phase}:null})); },
+  get saws(){ return saws.map(s=>({x:s.x,y:s.y,amp:s.amp,rate:s.rate,phase:s.phase})); },
+  get emitters(){ return emitters.map(e=>({x:e.x,y:e.y,period:e.period,charge:e.charge,offset:e.offset})); },
+  get starList(){ return stars.map(s=>({x:s.x,y:s.y,got:s.got,missed:s.missed})); },
+  get pots(){ return pots.map(o=>({x:o.x,y:o.y})); },
+  get view(){ return {scale:SCALE,camX:camX,camY:camY,offX:OFFX,W:W,H:H}; },
   get audioState(){ return AC?AC.state:'none'; },
-  start(s){ startGame(); if(s!=null){ newRun(s); state='play'; $('startScr').hidden=true; $('overScr').hidden=true; $('pauseScr').hidden=true; } },
-  newRun(s){ newRun(s); state='play'; $('startScr').hidden=true; $('overScr').hidden=true; $('pauseScr').hidden=true; },
-  setPos(x,y){ if(p){ p.x=x; p.y=y; p.vx=0; p.vy=0; p.ground=null; } },
-  warpTo(i){ const L=ledges.find(l=>l.i===i); if(L&&p){ p.x=L.x+L.w/2; p.y=L.y; p.vx=0; p.vy=0; p.ground=L; p.dashReady=true; } },
+  get pointer(){ return {active:pointer.active,worldX:pointer.worldX,slam:pointer.slam}; },
+  get snap(){ return {state, height:heightM(), floor:floorIdx, deaths, lives,
+    player:p?{x:p.x,y:p.y,vx:p.vx,vy:p.vy,ground:p.ground?p.ground.i:null}:null,
+    ledges:ledges.map(l=>({i:l.i,x:l.x,y:l.y,w:l.w,type:l.type,spike:l.spike||null,vent:l.vent?{offset:l.vent.offset}:null})),
+    pots:pots.map(o=>({x:o.x,y:o.y})),
+    emitters:emitters.map(e=>({x:e.x,y:e.y,period:e.period,charge:e.charge,offset:e.offset,phase:(worldTime+e.offset)%e.period})),
+    saws:saws.map(s=>({x:s.x,y:s.y,amp:s.amp}))}; },
+  start(s){ startGame(); if(s!=null){ newRun(s); state='play'; $('startScr').hidden=true; $('overScr').hidden=true; $('pauseScr').hidden=true; syncChrome(); } },
+  newRun(s){ newRun(s); state='play'; $('startScr').hidden=true; $('overScr').hidden=true; $('pauseScr').hidden=true; syncChrome(); },
+  setPos(x,y){ if(p){ p.x=x; p.y=y; p.vx=0; p.vy=0; } },
+  warpTo(i){ const L=ledges.find(l=>l.i===i); if(L&&p){ p.x=L.x+L.w/2; p.y=L.y; p.vx=0; p.vy=BOUNCE_V; p.ground=L; } },
   die(){ die(); },
 };
 </script>
