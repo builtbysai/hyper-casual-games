@@ -20,7 +20,7 @@ Working down in order. Done: 01-05, 07-12. 06 in progress.
 - 10 Neon Serpent (Snake) — DONE 2026-11-05 — snake splits in two, steer both at once, mirrored steering
 - 11 Bloom (Agar.io) — DONE 2026-11-06 — absorb matching colors, your complement kills you
 - 12 Territory (Paper.io) — DONE 2026-11-06 — your trail decays, reclaim it before it fades
-- 13 Neon Crossing (Crossy Road) — time dilates near traffic
+- 13 Neon Crossing (Crossy Road) — DONE 2026-11-07 — time dilates near traffic
 - 14 Pulse (Geometry Dash) — obstacles pulse to the beat, jump on the drop
 - 15 Merge Fall (2048) — tiles fall with physics, merge on impact
 - 16 Gravity Blocks (Tetris) — rotate the whole well, not the pieces
