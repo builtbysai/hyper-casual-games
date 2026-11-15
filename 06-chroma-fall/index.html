@@ -15,8 +15,8 @@ button { font:inherit; -webkit-tap-highlight-color:transparent; }
 #app { position:fixed; inset:0; overflow:hidden; touch-action:none; isolation:isolate; }
 #game { position:absolute; inset:0; display:block; width:100%; height:100%; touch-action:none; }
 #app::after { content:""; pointer-events:none; position:absolute; inset:0; z-index:1; background:linear-gradient(180deg,rgba(5,7,15,.28),transparent 21%,transparent 75%,rgba(5,7,15,.40)); }
-#hud { position:absolute; z-index:3; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top,0px) + 22px) max(22px,calc((100vw - 620px)/2)); display:flex; justify-content:space-between; align-items:flex-start; pointer-events:none; opacity:0; transition:opacity .23s ease; }
-#app.playing #hud,#app.paused #hud { opacity:1; }
+#hud { position:absolute; z-index:6; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top,0px) + 22px) max(22px,calc((100vw - 620px)/2)); display:flex; justify-content:space-between; align-items:flex-start; pointer-events:none; }
+#app.ready .scoreblock,#app.dead .scoreblock { visibility:hidden; }
 .scoreblock { display:flex; align-items:flex-start; gap:15px; }
 .scoreblock::before { content:""; display:block; width:3px; height:57px; background:var(--current); border-radius:2px; box-shadow:0 0 20px var(--current); transition:background .2s ease; }
 .micro { display:block; font-size:10px; font-weight:800; color:#aaaabc; letter-spacing:.22em; line-height:1.3; }
@@ -38,9 +38,16 @@ button { font:inherit; -webkit-tap-highlight-color:transparent; }
 #playHint small { display:block; margin-top:8px; font-size:10px; color:#a1a0b6; letter-spacing:.06em; }
 #progress { position:absolute; z-index:3; left:50%; transform:translateX(-50%); bottom:calc(env(safe-area-inset-bottom,0px) + 96px); display:flex; align-items:center; gap:8px; pointer-events:none; opacity:0; transition:opacity .24s; }
 #app.playing #progress { opacity:1; }
-#progress .pip { height:4px; width:20px; border-radius:4px; background:rgba(255,255,255,.14); }
-#progress .pip.active { background:var(--current); box-shadow:0 0 12px var(--current); }
-#progress .pip.done { background:rgba(255,255,255,.60); }
+#progress .pip { height:11px; width:11px; border-radius:50%; border:1.5px solid rgba(255,255,255,.18); transition:transform .18s,box-shadow .18s,background .18s; }
+#progress .pip.c0 { background:rgba(255,84,127,.30); }
+#progress .pip.c1 { background:rgba(22,225,223,.30); }
+#progress .pip.c2 { background:rgba(251,206,99,.30); }
+#progress .pip.c3 { background:rgba(161,138,255,.30); }
+#progress .pip.active { transform:scale(1.45); box-shadow:0 0 14px currentColor; }
+#progress .pip.c0.active { background:#ff547f; color:#ff547f; }
+#progress .pip.c1.active { background:#16e1df; color:#16e1df; }
+#progress .pip.c2.active { background:#fbce63; color:#fbce63; }
+#progress .pip.c3.active { background:#a18aff; color:#a18aff; }
 #screen { position:absolute; z-index:5; inset:0; display:flex; justify-content:center; align-items:center; padding:calc(50px + env(safe-area-inset-top,0px)) 25px calc(48px + env(safe-area-inset-bottom,0px)); background:radial-gradient(ellipse 65% 38% at 50% 49%,rgba(7,8,18,.86),rgba(7,8,18,.42) 75%,rgba(7,8,18,.24)); text-align:center; transition:opacity .25s,visibility .25s; }
 #screen.hidden { opacity:0; visibility:hidden; pointer-events:none; }
 .panel { position:relative; width:min(100%,450px); display:flex; flex-direction:column; align-items:center; }
@@ -70,20 +77,20 @@ h2 { font-weight:850; font-size:clamp(44px,12vw,70px); letter-spacing:-.077em; l
 <main id="app" class="ready">
 <canvas id="game" aria-label="Chroma Fall game. Tap or press Space to rise through matching color rings."></canvas>
 <header id="hud" aria-label="Game controls and score">
-  <div class="scoreblock"><div><span class="micro">SCORE</span><strong id="score">0</strong><div class="bestline">BEST <span id="best">0</span></div></div></div>
+  <div class="scoreblock"><div><span class="micro">SCORE</span><strong id="score">0</strong><div class="bestline">BEST <span id="best">0</span></div><div class="bestline">STARS <span id="stars">0</span></div></div></div>
   <div class="actions">
     <button class="iconbutton" id="sound" type="button" aria-label="Mute sound" title="Sound"><svg id="soundOn" viewBox="0 0 24 24"><path d="M11 5 6.4 9H3v6h3.4l4.6 4V5Z"/><path d="M15 8a5 5 0 0 1 0 8M18 5a9 9 0 0 1 0 14"/></svg><svg id="soundOff" viewBox="0 0 24 24"><path d="M11 5 6.4 9H3v6h3.4l4.6 4V5Z"/><path d="m16 9 5 6m0-6-5 6"/></svg></button>
     <button class="iconbutton" id="pause" type="button" aria-label="Pause game" title="Pause"><svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14" stroke-width="3"/></svg></button>
   </div>
 </header>
-<div id="progress" aria-hidden="true"><span class="pip active"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span></div>
+<div id="progress" aria-hidden="true"><span class="pip c0 active"></span><span class="pip c1"></span><span class="pip c2"></span><span class="pip c3"></span></div>
 <div id="playHint"><strong>TAP TO RISE</strong><small>Match the color at both sides of each ring</small></div>
 <section id="screen" aria-live="polite"><div class="panel">
   <div class="emblem" aria-hidden="true"></div>
   <div class="eyebrow" id="eyebrow">A ONE-TOUCH COLOR RUN</div>
   <h1 id="headline">CHROMA<br><span>FALL</span></h1>
   <p id="lead" class="lead">Rise through rotating rings. Match your color on every contact, collect a new color, keep climbing.</p>
-  <div id="result" hidden><div class="stat"><b id="finalScore">0</b><span>SCORE</span></div><div class="stat"><b id="finalBest">0</b><span>BEST</span></div></div>
+  <div id="result" hidden><div class="stat"><b id="finalScore">0</b><span>SCORE</span></div><div class="stat"><b id="finalBest">0</b><span>BEST</span></div><div class="stat"><b id="finalStars">0</b><span>STARS</span></div></div>
   <div id="record" hidden>NEW PERSONAL BEST</div>
   <button class="primary" id="start" type="button">START PLAYING</button>
   <div id="caption" class="caption">Tap anywhere or press Space to lift.</div>
@@ -101,13 +108,14 @@ const finalScore=document.getElementById('finalScore'), finalBest=document.getEl
 const record=document.getElementById('record'), startButton=document.getElementById('start');
 const caption=document.getElementById('caption'), soundButton=document.getElementById('sound');
 const progressPips=[...document.querySelectorAll('.pip')];
+const starsEl=document.getElementById('stars'), finalStars=document.getElementById('finalStars');
 const COLORS=['#ff547f','#16e1df','#fbce63','#a18aff'];
 const NAMES=['PINK','CYAN','GOLD','VIOLET'];
 const TAU=Math.PI*2, ARC=TAU/8;
 const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
-let W=0,H=0,DPR=1,U=1,run=0,mode='ready',score=0,best=0,muted=false;
+let W=0,H=0,DPR=1,U=1,run=0,mode='ready',score=0,best=0,muted=false,stars=0,startY=0,grace=0;
 let ball, gates=[],particles=[],notes=[],trail=[],camera=0,ambient=0,shake=0,flash=0;
-let created=0,lastTap=-10,ticking=0,prevTs=0,acc=0,lastPip=-1,runStartBest=0;
+let created=0,lastTap=-10,ticking=0,prevTs=0,acc=0,runStartBest=0;
 let audio=null,firstDeathReason='';
 const rand=(a,b)=>a+Math.random()*(b-a);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -145,19 +153,23 @@ function vibration(ms){if(!reduced.matches){try{navigator.vibrate?.(ms)}catch{}}
 function newGate(y,index){
   const first=index===0;
   const color=first?0:((gates.length?gates[gates.length-1].color:0)+1+Math.floor(Math.random()*3))%4;
-  const speed=first?.24:index===1?-.30:index===2?.36:(.47+Math.min(26,index)*.017+rand(0,.27))*(index%2?-1:1);
+  // Slow, readable rotation. The ball crosses the ring in ~0.2s, so the color
+  // barely moves between entry and exit: what you see is what you get.
+  const mag=first?.15:index===1?.20:index===2?.25:Math.min(.55,.25+(index-2)*.015);
+  const speed=mag*(index%2?-1:1);
   // Eight sectors repeat the four colors on opposite sides. Entry and exit can now both match.
-  return {y,r:rand(67,74)*U,rot:first?Math.PI/2-ARC/2:rand(0,TAU),speed,color,entered:false,passed:false,orbY:y+320*U*.60,orbDone:first,index};
+  return {y,r:rand(62,68)*U,rot:first?Math.PI/2-ARC/2:rand(0,TAU),speed,color,entered:false,passed:false,star:false,orbY:y+150*U,orbDone:first,index};
 }
 function reset(){
-  run++;score=0;runStartBest=best;created=0;camera=0;shake=0;flash=0;particles=[];notes=[];trail=[];lastTap=-10;
+  run++;score=0;stars=0;runStartBest=best;created=0;camera=0;shake=0;flash=0;particles=[];notes=[];trail=[];lastTap=-10;
   ball={x:W/2,y:H*.73,vy:0,r:12*U,color:0,glow:0};
-  gates=[];let y=ball.y-239*U;
-  for(let i=0;i<5;i++){gates.push(newGate(y,created++));y-=320*U;}
+  startY=ball.y;grace=2;
+  gates=[];let y=ball.y-90*U;
+  for(let i=0;i<5;i++){gates.push(newGate(y,created++));y-=300*U;}
   syncHud();
 }
-function syncHud(){scoreEl.textContent=score;bestEl.textContent=best;app.style.setProperty('--current',COLORS[ball.color]);
-  const pip=score%4;if(pip!==lastPip){lastPip=pip;progressPips.forEach((p,i)=>p.className='pip '+(i<pip?'done':i===pip?'active':''));}
+function syncHud(){scoreEl.textContent=score;bestEl.textContent=best;starsEl.textContent=stars;app.style.setProperty('--current',COLORS[ball.color]);
+  progressPips.forEach((p,i)=>{p.className='pip c'+i+(i===ball.color?' active':'');});
 }
 function setMode(value){mode=value;app.className=value+(muted?' muted':'');screen.classList.toggle('hidden',value==='playing');
   if(value==='ready'){
@@ -166,11 +178,11 @@ function setMode(value){mode=value;app.className=value+(muted?' muted':'');scree
     result.hidden=true;record.hidden=true;startButton.textContent='START PLAYING';caption.textContent='Tap anywhere or press Space to lift.';
   }else if(value==='dead'){
     eyebrow.textContent='RUN COMPLETE';headline.textContent='COLOR LOST';lead.textContent=firstDeathReason;
-    result.hidden=false;record.hidden=!(score>runStartBest);finalScore.textContent=score;finalBest.textContent=best;
+    result.hidden=false;record.hidden=!(score>runStartBest);finalScore.textContent=score;finalBest.textContent=best;finalStars.textContent=stars;
     startButton.textContent='TRY AGAIN';caption.textContent='One more ring. One more run.';
   }else if(value==='paused'){
     eyebrow.textContent='TAKE YOUR TIME';headline.textContent='PAUSED';lead.textContent='Your run is right where you left it.';
-    result.hidden=false;record.hidden=true;finalScore.textContent=score;finalBest.textContent=best;
+    result.hidden=false;record.hidden=true;finalScore.textContent=score;finalBest.textContent=best;finalStars.textContent=stars;
     startButton.textContent='RESUME';caption.textContent='Press P or Space to continue.';
   }
 }
@@ -183,7 +195,7 @@ function boost(){
   if(mode!=='playing')return;
   if(ticking-lastTap<.105)return;
   lastTap=ticking;
-  ball.vy=-690*U;
+  ball.vy=-700*U;
   ball.glow=1;
   tone(280+ball.color*55,.085,.045,'triangle');
   spawnBurst(ball.x,ball.y+10*U,COLORS[ball.color],4,.35);
@@ -196,8 +208,10 @@ document.getElementById('pause').addEventListener('click',e=>{e.stopPropagation(
 soundButton.addEventListener('click',e=>{e.stopPropagation();muted=!muted;storagePut('chroma_muted',muted?'1':'0');app.classList.toggle('muted',muted);soundButton.setAttribute('aria-label',muted?'Unmute sound':'Mute sound');if(muted&&audio)audio.suspend();else getAudio();});
 soundButton.setAttribute('aria-label',muted?'Unmute sound':'Mute sound');
 window.addEventListener('keydown',e=>{if(['Space','ArrowUp','Enter'].includes(e.code)){if(e.repeat)return;if(e.target?.tagName==='BUTTON'&&e.code==='Enter')return;e.preventDefault();input();}else if(e.code==='KeyP'||e.code==='Escape'){e.preventDefault();pause();}else if(e.code==='KeyM'){soundButton.click();} });
-document.addEventListener('visibilitychange',()=>{if(document.hidden){if(mode==='playing')pause();audio?.suspend();}prevTs=0;});
-window.addEventListener('blur',()=>{if(mode==='playing')pause();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){if(mode==='playing')pause();audio?.suspend();}else if(!muted)getAudio();prevTs=0;});
+window.addEventListener('blur',()=>{if(mode==='playing')pause();audio?.suspend();});
+window.addEventListener('focus',()=>{if(!muted)getAudio();});
+window.addEventListener('pagehide',()=>{audio?.suspend();});
 function segment(g,angle){
   const theta=((angle-g.rot)%TAU+TAU)%TAU;
   return Math.floor(theta/ARC)%4;
@@ -227,30 +241,34 @@ function step(dt){
   ticking+=dt;
   if(mode!=='playing')return;
   const oldY=ball.y;
-  ball.vy+=1420*U*dt;
+  ball.vy+=1450*U*dt;
   ball.y+=ball.vy*dt;
   ball.glow=Math.max(0,ball.glow-dt*3);
+  if(grace>0){grace-=dt;if(ball.y>startY){ball.y=startY;ball.vy=0;}}
   const target=Math.max(0,H*.66-ball.y);
-  camera+=(Math.max(camera,target)-camera)*(1-Math.exp(-dt*7));
+  camera+=(Math.max(camera,target)-camera)*(1-Math.exp(-dt*9));
   for(const g of gates)g.rot=(g.rot+g.speed*dt+TAU)%TAU;
   // Pickups change color automatically, preserving one-touch control.
   for(const g of gates){
     if(g.orbDone)continue;
     if(oldY>g.orbY+12*U&&ball.y<=g.orbY+12*U){
       g.orbDone=true;ball.color=g.color;ball.glow=1.8;
-      // The first few pickups give a generous matching window, then timing takes over.
-      if(g.index<3)g.rot=(Math.PI/2-(g.color+.5)*ARC+TAU)%TAU;
+      // Steady the ball after the color change so the player gets a beat to
+      // read the ring before climbing into it.
+      if(ball.vy<-140*U)ball.vy=-140*U;
       spawnBurst(ball.x,g.orbY,COLORS[ball.color],25,.75);
       addNote(NAMES[ball.color],ball.x,g.orbY-28*U,COLORS[ball.color]);
       tone(540,.12,.09,'sine');tone(810,.14,.055,'sine',.055);syncHud();
     }
   }
-  // A ring is a real obstacle on BOTH sides, in BOTH directions, even after scoring.
-  // Test the visible annulus, not just one imaginary horizontal checkpoint.
+  // A ring is a real obstacle on BOTH sides, in BOTH directions, until it is
+  // scored. Once passed it goes quiet: falling back through a cleared ring
+  // must never kill you. Test the visible annulus, not just one imaginary
+  // horizontal checkpoint.
   const halfWidth=7.5*U+ball.r;
   for(const g of gates){
     const lower=g.y+g.r, upper=g.y-g.r;
-    if(crossesBand(oldY,ball.y,lower,halfWidth)){
+    if(!g.passed&&crossesBand(oldY,ball.y,lower,halfWidth)){
       const active=segment(g,Math.PI/2);
       if(active!==ball.color){
         die('The lower arc was '+NAMES[active].toLowerCase()+'. Match the color you touch.',COLORS[active]);
@@ -262,7 +280,7 @@ function step(dt){
         tone(620,.07,.05,'triangle');
       }
     }
-    if(crossesBand(oldY,ball.y,upper,halfWidth)){
+    if(!g.passed&&crossesBand(oldY,ball.y,upper,halfWidth)){
       const active=segment(g,Math.PI*1.5);
       if(active!==ball.color){
         die('The upper arc was '+NAMES[active].toLowerCase()+'. Match the color you touch.',COLORS[active]);
@@ -279,15 +297,22 @@ function step(dt){
       addNote(score%5===0?'SPECTRUM +'+score:'CLEAR',ball.x,g.y-35*U,COLORS[ball.color]);
       tone(700,.14,.09,'sine');tone(1040,.17,.065,'sine',.08);vibration(16);
     }
+    // Star at the ring's heart: collect it by passing through the middle.
+    if(!g.star&&ball.y<oldY&&oldY>=g.y&&ball.y<g.y){
+      g.star=true;stars++;syncHud();
+      spawnBurst(ball.x,g.y,'#ffe9a8',16,.8);
+      addNote('STAR',ball.x,g.y-58*U,'#ffe9a8');
+      tone(1180,.1,.06,'sine');tone(1560,.12,.05,'sine',.06);
+    }
   }
   if(mode!=='playing')return;
-  if(ball.y+camera>H+ball.r+60*U)die('Keep the rhythm going. Tap to stay in the air.');
+  if(grace<=0&&ball.y+camera>H+ball.r+60*U)die('Keep the rhythm going. Tap to stay in the air.');
   if(gates.length){
     let last=gates[gates.length-1];
-    while(last.y+camera > -H*.6&&gates.length<13){last=newGate(last.y-320*U,created++);gates.push(last);}
+    while(last.y+camera > -H*.6&&gates.length<13){last=newGate(last.y-300*U,created++);gates.push(last);}
     gates=gates.filter(g=>g.y+camera<H+340*U||!g.passed);
   }
-  if(trail.length===0||Math.abs(ball.y-trail[trail.length-1].y)>7*U){trail.push({y:ball.y,color:COLORS[ball.color]});if(trail.length>14)trail.shift();}
+  if(trail.length===0||Math.abs(ball.y-trail[trail.length-1].y)>10*U){trail.push({y:ball.y,color:COLORS[ball.color]});if(trail.length>12)trail.shift();}
 }
 function animateEffects(dt){
   for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=150*U*dt;p.vx*=Math.max(0,1-dt*1.5);p.life-=dt;}
@@ -332,6 +357,13 @@ function drawGate(g){
     }
   }
   ctx.fillStyle='rgba(245,243,255,.14)';ctx.beginPath();ctx.arc(cx,sy,2.5*U,0,TAU);ctx.fill();
+  if(!g.star){
+    const tw=reduced.matches?1:.8+.2*Math.sin(ambient*3.2+g.index*1.7);
+    const sr=9*U*tw;
+    ctx.save();ctx.translate(cx,sy);ctx.beginPath();
+    ctx.moveTo(0,-sr);ctx.quadraticCurveTo(sr*.16,-sr*.16,sr,0);ctx.quadraticCurveTo(sr*.16,sr*.16,0,sr);ctx.quadraticCurveTo(-sr*.16,sr*.16,-sr,0);ctx.quadraticCurveTo(-sr*.16,-sr*.16,0,-sr);
+    ctx.fillStyle='#ffe9a8';ctx.shadowColor='#ffe9a8';ctx.shadowBlur=14*U;ctx.fill();ctx.restore();
+  }
   ctx.restore();
 }
 function drawOrb(g){
@@ -350,8 +382,8 @@ function drawBall(){
   for(let i=0;i<trail.length;i++){
     const t=trail[i],a=(i+1)/trail.length;
     const sy=t.y+camera;if(sy< -50||sy>H+50)continue;
-    ctx.globalAlpha=a*.22;ctx.fillStyle=t.color;
-    ctx.beginPath();ctx.arc(cx,sy,r*(.3+a*.5),0,TAU);ctx.fill();
+    ctx.globalAlpha=a*.13;ctx.fillStyle=t.color;
+    ctx.beginPath();ctx.arc(cx,sy,r*(.22+a*.38),0,TAU);ctx.fill();
   }
   ctx.globalAlpha=1;
   const glow=ctx.createRadialGradient(cx,cy,0,cx,cy,r*(2.6+ball.glow*.5));
@@ -387,11 +419,8 @@ function frame(ts){
   animateEffects(dt);render();requestAnimationFrame(frame);
 }
 reset();setMode('ready');requestAnimationFrame(frame);
-window.__cf={get state(){return mode},get score(){return score},get best(){return best},
-  get ball(){return {...ball,screenY:ball.y+camera}},get camera(){return camera},
-  gates(){return gates.map(g=>({index:g.index,y:g.y,r:g.r,color:g.color,entered:g.entered,passed:g.passed,orbDone:g.orbDone,lowerColor:segment(g,Math.PI/2),upperColor:segment(g,Math.PI*1.5)}))},
-  tap:input,pause,reset:()=>{reset();setMode('ready')}};
 })();
 </script>
+<!-- chroma-fall-fix-v1 -->
 </body>
 </html>
