@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#070714">
+<title>Hyper Tunnel — warp flyer</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#070714;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#EAF6FF}
+  #wrap{position:fixed;inset:0;overflow:hidden}
+  #cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  .hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:calc(12px + env(safe-area-inset-top)) 12px 0;pointer-events:none;z-index:5}
+  .hud .left{display:flex;flex-direction:column;gap:2px}
+  .hud .h{font-size:32px;font-weight:900;line-height:1.1;letter-spacing:.5px;color:#fff;text-shadow:0 0 12px rgba(34,211,238,.7),0 2px 0 rgba(0,0,0,.5)}
+  .hud .sub{font-size:13px;font-weight:800;color:#BFE9FF;text-shadow:0 0 8px rgba(34,211,238,.5);letter-spacing:.5px}
+  .hud .sub .gold{color:#FFD84D}
+  .hud .right{display:flex;gap:8px;align-items:center;pointer-events:auto}
+  .pill{background:#12122E;border:2px solid #22D3EE;border-radius:999px;padding:4px 10px;font-size:13px;font-weight:900;display:flex;gap:5px;align-items:center;color:#BFE9FF;box-shadow:0 0 10px rgba(34,211,238,.35)}
+  .iconbtn{width:38px;height:38px;border-radius:50%;border:2px solid #22D3EE;background:#12122E;color:#BFE9FF;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 0 10px rgba(34,211,238,.35)}
+  .overlay{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+  .hud[hidden]{display:none}
+  .overlay[hidden]{display:none}
+  .card{width:min(360px,94vw);text-align:center;background:#12122E;border:2px solid #22D3EE;border-radius:18px;box-shadow:0 0 24px rgba(34,211,238,.35),0 8px 0 rgba(0,0,0,.4);padding:20px 18px}
+  .card h1{font-size:42px;font-weight:900;letter-spacing:1px;line-height:.95;color:#fff;text-shadow:0 0 16px rgba(255,46,136,.8),0 0 30px rgba(34,211,238,.5)}
+  .card h1 span{color:#FF2E88;text-shadow:0 0 16px rgba(255,46,136,.9)}
+  .card h2{font-size:28px;font-weight:900;letter-spacing:1px;color:#fff}
+  .card p{margin:12px 0;color:#BFE9FF;font-size:14px;line-height:1.5}
+  .card .best{font-size:13px;font-weight:800;color:#FFD84D;letter-spacing:1px}
+  .big{font-size:52px;font-weight:900;color:#fff;line-height:1;text-shadow:0 0 16px rgba(34,211,238,.7)}
+  .stats{display:flex;justify-content:center;gap:22px;margin:14px 0}
+  .stats .v{font-size:26px;font-weight:800;color:#fff}.stats .k{font-size:11px;letter-spacing:1px;color:#7FA8C9;font-weight:700}
+  .btn{display:block;width:100%;padding:15px;border-radius:14px;border:2px solid #22D3EE;font-size:17px;font-weight:800;cursor:pointer;margin-top:10px;box-shadow:0 4px 0 rgba(0,0,0,.5);background:#14143A;color:#BFE9FF}
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.5)}
+  .btn.primary{background:#FF2E88;border-color:#FF2E88;color:#fff;box-shadow:0 0 16px rgba(255,46,136,.5),0 4px 0 rgba(0,0,0,.5)}
+  .btn.ghost{background:transparent;color:#BFE9FF}
+  .hint{font-size:12px;color:#7FA8C9;margin-top:14px;line-height:1.6}
+  .flash{position:absolute;top:24%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;font-size:34px;font-weight:900;letter-spacing:3px;color:#FFD84D;text-shadow:0 0 18px rgba(255,216,77,.9),0 3px 0 rgba(0,0,0,.6);opacity:0;transition:opacity .2s}
+  .flash.show{opacity:1}
+  .combo{position:absolute;top:33%;left:0;right:0;text-align:center;z-index:4;pointer-events:none;font-size:16px;font-weight:900;letter-spacing:2px;color:#A3E635;text-shadow:0 0 12px rgba(163,230,53,.8);opacity:0;transition:opacity .2s}
+  .combo.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv"></canvas>
+  <div class="hud" id="hud" hidden>
+    <div class="left">
+      <div class="h"><span id="score">0</span></div>
+      <div class="sub"><span id="dist">0m</span> &nbsp;&middot;&nbsp; GATES <span id="gates">0</span></div>
+      <div class="sub">BEST <span class="gold" id="best">0</span></div>
+    </div>
+    <div class="right">
+      <span class="pill" id="speedPill">SPEED 1.0x</span>
+      <button class="iconbtn" id="muteBtn" aria-label="Sound">&#9834;</button>
+      <button class="iconbtn" id="pauseBtn" aria-label="Pause">&#10074;&#10074;</button>
+    </div>
+  </div>
+  <div class="flash" id="flash"></div>
+  <div class="combo" id="combo"></div>
+
+  <div class="overlay" id="titleScr">
+    <div class="card">
+      <h1>HYPER<br><span>TUNNEL</span></h1>
+      <p>You are flying down the warp tunnel. Drag anywhere to steer. Fly through the holes in the gates. Thread the dead center for a PERFECT boost.</p>
+      <div class="best" id="titleBest"></div>
+      <button class="btn primary" id="playBtn">FLY</button>
+      <button class="btn ghost" id="howBtn">HOW TO PLAY</button>
+      <div class="hint" id="howText" hidden>Drag / mouse = steer the ship<br>Arrow keys / WASD = steer too<br>Green hole = the way through<br>Gold ring = boost + points<br>Hit a wall, a block, or the gate = run over</div>
+      <div class="hint">Drag to steer &middot; thread the center for PERFECT</div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overScr" hidden>
+    <div class="card">
+      <h2 id="overTitle">WRECKED</h2>
+      <div class="big"><span id="overScore">0</span></div>
+      <div class="stats">
+        <div><div class="v" id="overDist">0m</div><div class="k">DISTANCE</div></div>
+        <div><div class="v" id="overGates">0</div><div class="k">GATES</div></div>
+        <div><div class="v" id="overBest">0</div><div class="k">BEST</div></div>
+      </div>
+      <p id="overMsg"></p>
+      <button class="btn primary" id="againBtn">FLY AGAIN</button>
+      <button class="btn ghost" id="menuBtn">MENU</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="pauseScr" hidden>
+    <div class="card">
+      <h2>PAUSED</h2>
+      <p id="pauseInfo"></p>
+      <button class="btn primary" id="resumeBtn">RESUME</button>
+      <div class="btn" style="display:flex;gap:10px;padding:0;border:none;background:transparent;box-shadow:none">
+        <button class="btn ghost" id="restartBtn" style="flex:1">RESTART</button>
+        <button class="btn ghost" id="quitBtn" style="flex:1">MENU</button>
+      </div>
+      <button class="btn ghost" id="soundBtn">SOUND ON</button>
+    </div>
+  </div>
+</div>
+<script>
+"use strict";
+/* Hyper Tunnel — first-person endless warp flyer. Model: Kodeco UE4 endless
+   tunnel game (fly forward, dodge what spawns ahead). Twist: every gate is a
+   wall with one hole; thread the dead center for PERFECT + speed surge. */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, CX = 0, CY = 0, R = 0;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  CX = W / 2; CY = H * 0.47;
+  R = Math.min(W, H) * 0.62;
+}
+window.addEventListener('resize', resize);
+resize();
+
+const $ = id => document.getElementById(id);
+const hud = $('hud'), scoreEl = $('score'), distEl = $('dist'), gatesEl = $('gates'),
+      bestEl = $('best'), speedPill = $('speedPill'), flashEl = $('flash'), comboEl = $('combo'),
+      titleScr = $('titleScr'), overScr = $('overScr'), pauseScr = $('pauseScr');
+
+/* ---------- state ---------- */
+const Z_MAX = 100, PLAYER_Z = 4;
+let state = 'title'; // title | play | pause | over
+let speed = 26, surge = 0, dist = 0, score = 0, gatesPassed = 0, perfects = 0,
+    best = +(localStorage.getItem('ht_best') || 0),
+    muted = localStorage.getItem('ht_muted') === '1',
+    time = 0, shake = 0, flashT = 0, comboT = 0, spawnIn = 0, spawnCount = 0,
+    spokeRot = 0, lastTs = 0, deadT = 0;
+
+const ship = { x: 0, y: 0, tx: 0, ty: 0, r: 0.09 };
+const rings = [];
+for (let i = 0; i < 14; i++) rings.push({ z: (i / 14) * Z_MAX });
+let gates = [], blocks = [], boosts = [], parts = [];
+
+/* ---------- audio ---------- */
+let AC = null, humOsc = null, humGain = null;
+function audio(){
+  if (!AC){
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    humOsc = AC.createOscillator(); humOsc.type = 'sawtooth'; humOsc.frequency.value = 55;
+    const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 220;
+    humGain = AC.createGain(); humGain.gain.value = 0;
+    humOsc.connect(lp); lp.connect(humGain); humGain.connect(AC.destination);
+    humOsc.start();
+  }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function tone(freq, dur, type, vol, slideTo){
+  if (muted || !AC) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+  g.gain.setValueAtTime(vol || 0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+function noiseBurst(dur, vol){
+  if (muted || !AC) return;
+  const t = AC.currentTime, len = Math.floor(AC.sampleRate * dur),
+        buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+  const g = AC.createGain(); g.gain.value = vol || 0.3;
+  src.connect(f); f.connect(g); g.connect(AC.destination); src.start(t);
+}
+const sfxPass = () => { tone(660, 0.12, 'sine', 0.12, 990); };
+const sfxPerfect = () => { tone(880, 0.1, 'sine', 0.14); setTimeout(() => tone(1320, 0.16, 'sine', 0.14), 70); };
+const sfxBoost = () => { tone(520, 0.18, 'triangle', 0.14, 1560); };
+const sfxCrash = () => { noiseBurst(0.35, 0.4); tone(120, 0.4, 'sine', 0.3, 40); };
+function setMuted(m){
+  muted = m; localStorage.setItem('ht_muted', m ? '1' : '0');
+  $('muteBtn').innerHTML = m ? '&#9834;&#8413;' : '&#9834;';
+  $('soundBtn').textContent = m ? 'SOUND OFF' : 'SOUND ON';
+  if (humGain) humGain.gain.value = 0;
+}
+function suspendAudio(){ if (AC && AC.state === 'running') AC.suspend(); }
+function resumeAudio(){ if (AC && AC.state === 'suspended' && !muted) AC.resume(); }
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden){ suspendAudio(); if (state === 'play') pauseGame(); }
+  else resumeAudio();
+});
+window.addEventListener('blur', () => { suspendAudio(); if (state === 'play') pauseGame(); });
+window.addEventListener('pagehide', suspendAudio);
+
+/* ---------- input ---------- */
+const keys = {};
+let pointerDown = false;
+function setTargetFromScreen(sx, sy){
+  let nx = (sx - CX) / (R * 0.92), ny = (sy - CY) / (R * 0.92);
+  const d = Math.hypot(nx, ny), max = 0.85;
+  if (d > max){ nx = nx / d * max; ny = ny / d * max; }
+  ship.tx = nx; ship.ty = ny;
+}
+cv.addEventListener('pointerdown', e => {
+  pointerDown = true; cv.setPointerCapture(e.pointerId);
+  setTargetFromScreen(e.clientX, e.clientY);
+});
+cv.addEventListener('pointermove', e => { if (pointerDown) setTargetFromScreen(e.clientX, e.clientY); });
+const endPointer = () => { pointerDown = false; };
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
+  if (e.key === ' ' && state === 'title') startGame();
+  else if (e.key === ' ' && state === 'over') startGame();
+  else if ((e.key === 'p' || e.key === 'Escape') && state === 'play') pauseGame();
+  else if ((e.key === 'p' || e.key === 'Escape') && state === 'pause') resumeGame();
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+function keySteer(dt){
+  const v = 1.6 * dt;
+  if (keys['arrowleft'] || keys['a']) ship.tx -= v;
+  if (keys['arrowright'] || keys['d']) ship.tx += v;
+  if (keys['arrowup'] || keys['w']) ship.ty -= v;
+  if (keys['arrowdown'] || keys['s']) ship.ty += v;
+  const d = Math.hypot(ship.tx, ship.ty);
+  if (d > 0.85){ ship.tx = ship.tx / d * 0.85; ship.ty = ship.ty / d * 0.85; }
+}
+
+/* ---------- helpers ---------- */
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+function scaleAt(z){ return 1 / (1 + z * 0.045); }
+function showFlash(txt, gold){
+  flashEl.textContent = txt;
+  flashEl.style.color = gold ? '#FFD84D' : '#A3E635';
+  flashEl.classList.add('show'); flashT = 0.9;
+}
+function showCombo(txt){
+  comboEl.textContent = txt;
+  comboEl.classList.add('show'); comboT = 1.1;
+}
+function burst(x, y, color, n, spd){
+  for (let i = 0; i < n; i++){
+    const a = Math.random() * Math.PI * 2, s = rand(0.3, 1) * (spd || 1.6);
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.4, 0.9), t: 0, color, r: rand(0.02, 0.05) });
+  }
+}
+
+/* ---------- spawning ---------- */
+function difficulty(){ return clamp(dist / 2400, 0, 1); } // 0..1 over ~2400m
+function spawnGate(){
+  const d = difficulty();
+  const ang = rand(0, Math.PI * 2), rad = rand(0.32, 0.52);
+  gates.push({
+    z: Z_MAX, hx: Math.cos(ang) * rad, hy: Math.sin(ang) * rad,
+    hole: lerp(0.34, 0.26, d), done: false, hue: 315
+  });
+}
+function spawnBlock(){
+  const ang = rand(0, Math.PI * 2), rad = rand(0.15, 0.6);
+  blocks.push({ z: Z_MAX, x: Math.cos(ang) * rad, y: Math.sin(ang) * rad,
+    r: rand(0.11, 0.16), rot: rand(0, Math.PI), spin: rand(-2.4, 2.4) });
+}
+function spawnBoost(){
+  const ang = rand(0, Math.PI * 2), rad = rand(0.2, 0.5);
+  boosts.push({ z: Z_MAX, x: Math.cos(ang) * rad, y: Math.sin(ang) * rad, r: 0.16, taken: false });
+}
+function director(dt){
+  spawnIn -= speed * dt;
+  if (spawnIn > 0) return;
+  spawnCount++;
+  const d = difficulty();
+  spawnIn = rand(26, 34) - d * 6; // z-units between spawns; shrinks as you speed up
+  if (spawnCount % 8 === 0){ spawnBoost(); return; }
+  spawnGate();
+  if (spawnCount > 3 && Math.random() < 0.45 + d * 0.25) spawnBlock();
+  if (d > 0.5 && Math.random() < 0.3) spawnBlock();
+}
+
+/* ---------- flow ---------- */
+function show(el){ el.hidden = false; }
+function hide(el){ el.hidden = true; }
+function updateHud(){
+  scoreEl.textContent = score;
+  distEl.textContent = Math.floor(dist) + 'm';
+  gatesEl.textContent = gatesPassed;
+  bestEl.textContent = best;
+  speedPill.textContent = 'SPEED ' + (speed / 26).toFixed(1) + 'x';
+}
+function startGame(){
+  audio();
+  state = 'play';
+  speed = 26; surge = 0; dist = 0; score = 0; gatesPassed = 0; perfects = 0;
+  ship.x = 0; ship.y = 0; ship.tx = 0; ship.ty = 0;
+  gates = []; blocks = []; boosts = []; parts = [];
+  spawnIn = 30; spawnCount = 0; shake = 0; deadT = 0;
+  for (let i = 0; i < rings.length; i++) rings[i].z = (i / rings.length) * Z_MAX;
+  hide(titleScr); hide(overScr); hide(pauseScr); show(hud);
+  updateHud();
+  if (humGain && !muted) humGain.gain.value = 0.05;
+}
+function pauseGame(){
+  if (state !== 'play') return;
+  state = 'pause';
+  $('pauseInfo').textContent = 'Score ' + score + '  ·  ' + Math.floor(dist) + 'm  ·  ' + gatesPassed + ' gates';
+  show(pauseScr);
+  if (humGain) humGain.gain.value = 0;
+}
+function resumeGame(){
+  if (state !== 'pause') return;
+  state = 'play'; hide(pauseScr); resumeAudio();
+  if (humGain && !muted) humGain.gain.value = 0.05;
+}
+function gameOver(why){
+  if (state !== 'play') return;
+  state = 'over'; deadT = 0;
+  sfxCrash();
+  shake = 14;
+  burst(ship.x, ship.y, '#FF2E88', 26, 2.2);
+  burst(ship.x, ship.y, '#FFD84D', 14, 1.6);
+  const prevBest = best;
+  if (score > best){ best = score; localStorage.setItem('ht_best', String(best)); }
+  $('overScore').textContent = score;
+  $('overDist').textContent = Math.floor(dist) + 'm';
+  $('overGates').textContent = gatesPassed;
+  $('overBest').textContent = best;
+  $('overTitle').textContent = (score > prevBest && score > 0) ? 'NEW BEST!' : 'WRECKED';
+  const msgs = [
+    'The tunnel always wins in the end. Almost had it.',
+    perfects > 2 ? perfects + ' PERFECT threads. The center is calling.' : 'Thread the center of the hole for PERFECT and a surge.',
+    gatesPassed > 10 ? gatesPassed + ' gates down. The tunnel gets faster. So do you.' : 'Drag to steer. The green hole is the only way through.'
+  ];
+  $('overMsg').textContent = msgs[Math.floor(Math.random() * msgs.length)];
+  if (humGain) humGain.gain.value = 0;
+  setTimeout(() => { if (state === 'over'){ show(overScr); updateHud(); } }, 650);
+}
+function toMenu(){
+  state = 'title';
+  hide(overScr); hide(pauseScr); hide(hud); show(titleScr);
+  $('titleBest').textContent = best > 0 ? 'BEST ' + best : '';
+  if (humGain) humGain.gain.value = 0;
+}
+
+/* ---------- update ---------- */
+function update(dt){
+  time += dt;
+  spokeRot += dt * 0.12;
+  if (flashT > 0){ flashT -= dt; if (flashT <= 0) flashEl.classList.remove('show'); }
+  if (comboT > 0){ comboT -= dt; if (comboT <= 0) comboEl.classList.remove('show'); }
+  if (shake > 0) shake = Math.max(0, shake - dt * 26);
+  if (state !== 'play'){
+    // idle drift behind menus
+    for (const r of rings){ r.z -= 10 * dt; if (r.z < 2) r.z += Z_MAX; }
+    updateParts(dt);
+    return;
+  }
+  // speed: base ramp + surge
+  const target = Math.min(62, 26 + dist * 0.011);
+  if (surge > 0){ surge -= dt; speed = Math.min(74, target + 14); }
+  else speed = lerp(speed, target, dt * 0.5);
+  dist += speed * dt * 0.55;
+  score += Math.round(speed * dt * 0.55);
+  keySteer(dt);
+  const k = 1 - Math.exp(-14 * dt);
+  ship.x = lerp(ship.x, ship.tx, k);
+  ship.y = lerp(ship.y, ship.ty, k);
+  for (const r of rings){ r.z -= speed * dt; if (r.z < 2) r.z += Z_MAX; }
+  director(dt);
+  // gates
+  for (const g of gates){
+    g.z -= speed * dt;
+    if (!g.done && g.z <= PLAYER_Z){
+      g.done = true;
+      const d = Math.hypot(ship.x - g.hx, ship.y - g.hy);
+      if (d < g.hole - ship.r * 0.4){
+        gatesPassed++;
+        const perfect = d < g.hole * 0.35;
+        if (perfect){
+          perfects++; score += 25; surge = 1.2;
+          showFlash('PERFECT', true);
+          showCombo('+' + 25 + '  ·  SURGE');
+          sfxPerfect();
+          burst(g.hx, g.hy, '#FFD84D', 16, 1.8);
+        } else {
+          score += 10;
+          sfxPass();
+          burst(g.hx, g.hy, '#A3E635', 8, 1.2);
+        }
+      } else {
+        gameOver('gate');
+        return;
+      }
+    }
+  }
+  gates = gates.filter(g => g.z > -6);
+  // blocks
+  for (const b of blocks){
+    b.z -= speed * dt; b.rot += b.spin * dt;
+    if (b.z <= PLAYER_Z + 2 && b.z >= PLAYER_Z - 4){
+      if (Math.hypot(ship.x - b.x, ship.y - b.y) < b.r + ship.r * 0.8){
+        gameOver('block');
+        return;
+      }
+    }
+  }
+  blocks = blocks.filter(b => b.z > -6);
+  // boosts
+  for (const bo of boosts){
+    bo.z -= speed * dt;
+    if (!bo.taken && bo.z <= PLAYER_Z){
+      bo.taken = true;
+      if (Math.hypot(ship.x - bo.x, ship.y - bo.y) < bo.r){
+        score += 15; surge = Math.max(surge, 1.0);
+        showFlash('BOOST', true);
+        sfxBoost();
+        burst(bo.x, bo.y, '#FFD84D', 14, 1.6);
+      }
+    }
+  }
+  boosts = boosts.filter(b => b.z > -6);
+  updateParts(dt);
+  updateHud();
+}
+function updateParts(dt){
+  for (const p of parts){ p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.96; p.vy *= 0.96; }
+  parts = parts.filter(p => p.t < p.life);
+}
+
+/* ---------- render ---------- */
+function px(x){ return CX + x * R * 0.92; }
+function py(y){ return CY + y * R * 0.92; }
+function render(){
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  if (shake > 0) ctx.translate(rand(-shake, shake) * 0.5, rand(-shake, shake) * 0.5);
+  // backdrop
+  const bg = ctx.createRadialGradient(CX, CY, 0, CX, CY, Math.max(W, H) * 0.75);
+  bg.addColorStop(0, '#0D0D2B'); bg.addColorStop(0.6, '#070714'); bg.addColorStop(1, '#030308');
+  ctx.fillStyle = bg; ctx.fillRect(-20, -20, W + 40, H + 40);
+  // spokes (longitudinal tunnel lines)
+  ctx.save();
+  ctx.translate(CX, CY); ctx.rotate(spokeRot);
+  for (let i = 0; i < 12; i++){
+    const a = (i / 12) * Math.PI * 2;
+    ctx.strokeStyle = 'rgba(34,211,238,0.10)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(Math.cos(a) * R * 0.16, Math.sin(a) * R * 0.16);
+    ctx.lineTo(Math.cos(a) * R * 1.05, Math.sin(a) * R * 1.05); ctx.stroke();
+  }
+  ctx.restore();
+  // tunnel rings, far to near
+  const sorted = rings.slice().sort((a, b) => b.z - a.z);
+  for (const r of sorted){
+    const s = scaleAt(r.z), rad = R * s;
+    ctx.strokeStyle = 'rgba(34,211,238,' + (0.12 + 0.5 * s).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(1, 3.5 * s);
+    ctx.beginPath(); ctx.arc(CX, CY, rad, 0, Math.PI * 2); ctx.stroke();
+  }
+  // boosts (far to near)
+  const all = [];
+  for (const b of boosts) all.push({ z: b.z, k: 'boost', o: b });
+  for (const b of blocks) all.push({ z: b.z, k: 'block', o: b });
+  for (const g of gates) all.push({ z: g.z, k: 'gate', o: g });
+  all.sort((a, b) => b.z - a.z);
+  for (const it of all){
+    const s = scaleAt(it.z);
+    if (it.k === 'boost'){
+      const o = it.o;
+      ctx.strokeStyle = 'rgba(255,216,77,' + (0.35 + 0.6 * s).toFixed(3) + ')';
+      ctx.lineWidth = Math.max(2, 6 * s);
+      ctx.shadowColor = '#FFD84D'; ctx.shadowBlur = 14 * s;
+      ctx.beginPath(); ctx.arc(px(o.x), py(o.y), o.r * R * 0.92 * s + 6 * s, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0;
+    } else if (it.k === 'block'){
+      const o = it.o, br = o.r * R * 0.92 * s;
+      ctx.save();
+      ctx.translate(px(o.x), py(o.y)); ctx.rotate(o.rot);
+      ctx.fillStyle = 'rgba(255,46,136,' + (0.35 + 0.5 * s).toFixed(3) + ')';
+      ctx.strokeStyle = '#FF2E88'; ctx.lineWidth = Math.max(1.5, 3 * s);
+      ctx.shadowColor = '#FF2E88'; ctx.shadowBlur = 12 * s;
+      ctx.beginPath();
+      ctx.moveTo(0, -br); ctx.lineTo(br, 0); ctx.lineTo(0, br); ctx.lineTo(-br, 0);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    } else {
+      const o = it.o, wallR = R * s;
+      // wall: opaque disc
+      ctx.fillStyle = '#131336';
+      ctx.beginPath(); ctx.arc(CX, CY, wallR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,46,136,' + (0.4 + 0.55 * s).toFixed(3) + ')';
+      ctx.lineWidth = Math.max(2, 5 * s);
+      ctx.beginPath(); ctx.arc(CX, CY, wallR, 0, Math.PI * 2); ctx.stroke();
+      // hole: punched opening with bright rim
+      const hx = px(o.hx), hy = py(o.hy), hr = o.hole * R * 0.92 * s;
+      ctx.fillStyle = '#070714';
+      ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#A3E635'; ctx.lineWidth = Math.max(2, 4.5 * s);
+      ctx.shadowColor = '#A3E635'; ctx.shadowBlur = 16 * s;
+      ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0;
+      // center dot: the PERFECT target
+      ctx.fillStyle = 'rgba(163,230,53,' + (0.5 + 0.4 * s).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(hx, hy, Math.max(2, hr * 0.14), 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // particles
+  for (const p of parts){
+    const a = 1 - p.t / p.life;
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = a;
+    ctx.beginPath(); ctx.arc(px(p.x), py(p.y), Math.max(1.5, p.r * R * 0.92 * a), 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // ship
+  if (state === 'play' || state === 'pause'){
+    const sx = px(ship.x), sy = py(ship.y), sr = Math.max(10, R * 0.085);
+    // engine glow
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.shadowColor = '#22D3EE'; ctx.shadowBlur = 18;
+    ctx.fillStyle = '#EAF6FF';
+    ctx.beginPath();
+    ctx.moveTo(0, -sr * 1.25);
+    ctx.lineTo(sr * 0.85, sr * 0.9);
+    ctx.lineTo(0, sr * 0.45);
+    ctx.lineTo(-sr * 0.85, sr * 0.9);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FF2E88';
+    ctx.beginPath(); ctx.arc(0, sr * 0.1, sr * 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+  // vignette
+  const vg = ctx.createRadialGradient(CX, CY, R * 0.5, CX, CY, Math.max(W, H) * 0.8);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------- loop ---------- */
+function frame(ts){
+  const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0.016);
+  lastTs = ts;
+  update(dt);
+  render();
+  if (humOsc && AC && state === 'play' && !muted){
+    humOsc.frequency.value = 45 + speed * 0.9;
+    humGain.gain.value = 0.04 + speed * 0.0004;
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ---------- wiring ---------- */
+$('playBtn').addEventListener('click', startGame);
+$('againBtn').addEventListener('click', startGame);
+$('menuBtn').addEventListener('click', toMenu);
+$('quitBtn').addEventListener('click', toMenu);
+$('restartBtn').addEventListener('click', startGame);
+$('resumeBtn').addEventListener('click', resumeGame);
+$('pauseBtn').addEventListener('click', () => { if (state === 'play') pauseGame(); });
+$('howBtn').addEventListener('click', () => {
+  const h = $('howText'); h.hidden = !h.hidden;
+});
+$('muteBtn').addEventListener('click', () => { audio(); setMuted(!muted); });
+$('soundBtn').addEventListener('click', () => { audio(); setMuted(!muted); });
+setMuted(muted);
+$('titleBest').textContent = best > 0 ? 'BEST ' + best : '';
+requestAnimationFrame(frame);
+</script>
+<!-- hyper-tunnel-v1 -->
+</body>
+</html>
