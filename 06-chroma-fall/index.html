@@ -66,8 +66,8 @@
   <div id="hud" hidden>
     <div class="left">
       <div id="score">0</div>
-      <div id="bestLine">BEST <b id="best">0</b></div>
-      <div id="youAre"><span class="dot"></span>YOU ARE BLUE</div>
+      <div id="bestLine">BEST <b id="best">0</b> &nbsp; STARS <b id="stars">0</b></div>
+      <div id="youAre"><span class="dot"></span><span id="youName">YOU ARE BLUE</span></div>
     </div>
     <div class="right">
       <button class="iconbtn" id="muteBtn" aria-label="Sound">&#9834;</button>
@@ -80,7 +80,7 @@
   <div class="overlay" id="titleScr">
     <div class="card">
       <h1><span class="c1">C</span><span class="c2">H</span><span class="c3">R</span><span class="c4">O</span><span class="c1">M</span><span class="c2">A</span><br><span class="c3">F</span><span class="c4">A</span><span class="c1">L</span><span class="c2">L</span></h1>
-      <p>Your ball is <b>blue</b>. Tap to rise through the spinning rings. Pass through <b>blue</b> only. Touch any other color and you fall back to the start.</p>
+      <p>Your ball is <b>blue</b>. Tap to rise through the spinning rings. Pass through <b>your color</b> only. Grab the diamond to switch colors, catch the star at each ring's heart. Touch any other color and you fall back to the start.</p>
       <button class="btn primary" id="playBtn">PLAY</button>
       <p style="margin:12px 0 0; font-size:12px; color:#8E8EB0;" id="titleBest"></p>
     </div>
@@ -93,6 +93,7 @@
       <div class="stats">
         <div><span id="overBest">0</span><span>BEST</span></div>
         <div><span id="overRings">0</span><span>RINGS</span></div>
+        <div><span id="overStars">0</span><span>STARS</span></div>
       </div>
       <p id="overMsg"></p>
       <button class="btn primary" id="againBtn">TRY AGAIN</button>
@@ -114,12 +115,15 @@
 <script>
 /*
   Chroma Fall — rebuilt from scratch per the Kodeco Color Switch guide
-  (kodeco.com/790, SpriteKit + Swift). Guide numbers, unmodified, in guide
-  points (375x667 scene), scaled to the phone by S = W/375.
-  Guide spec: tap sets vy = 800; gravity -22 (~3300 pts/s2); ball r 40
-  visual / 30 physics, starts blue on a ledge at y=160; rings are 4-color
-  circles (outer 200, inner 160), one full turn per 8s; spacing 800;
-  camera follows above screen center; wrong color or falling = restart.
+  (kodeco.com/790, SpriteKit + Swift), then retuned for the phone
+  (2026-11-15, Hans: better dimensions, fun/addicting, exact collision).
+  Guide core kept: tap sets the rise, 4-color rings, pass through your
+  color only, camera follows, wrong color or falling = restart.
+  Retune: rings fit the screen (outer 138, inner 110), ball 15 with the
+  hitbox equal to the visual, spacing 520 with an orb between rings,
+  rotation ramps 8s to 4.5s per turn, stars at each ring heart, PERFECT
+  bonus for a fast pass. Orbs/stars come from the real Color Switch.
+  All dimensions in guide points (375x667 scene), scaled by S = W/375.
 */
 'use strict';
 const cv = document.getElementById('cv');
@@ -129,16 +133,17 @@ const hud = $('hud'), scoreEl = $('score'), bestEl = $('best'),
   flashEl = $('flash'), hintEl = $('hint'),
   titleScr = $('titleScr'), overScr = $('overScr'), pauseScr = $('pauseScr');
 
-/* guide constants (points) */
+/* dimensions (guide points, retuned for the phone) */
 const GW = 375;                 // guide scene width
-const GRAV = 3300;              // -22 * 150 pts per meter
-const TAP_V = 800;              // tap sets upward velocity
-const BALL_R = 30, BALL_DRAW = 40;
-const R_OUT = 200, R_IN = 160;
-const SPACING = 800;
-const ROT = Math.PI * 2 / 8;    // one full turn per 8s
+const GRAV = 3500;
+const TAP_V = 750;              // jump height ~80
+const BALL_R = 15;              // visual = hitbox: what you see kills you
+const R_OUT = 138, R_IN = 110;  // ring fits the screen, interior fits a hover
+const SPACING = 520;
+const FIRST_Y = 520;            // first ring ~4 taps up
 const LEDGE_Y = 160, LEDGE_W = 200, LEDGE_H = 10;
 const START_Y = 200;
+const PERFECT_MS = 3500;        // enter-to-exit under 3.5s = PERFECT (+1)
 const COLORS = ['#FFD93D', '#FF3B5C', '#35A7FF', '#B565FF']; // yellow red blue purple
 const NAMES = ['yellow', 'red', 'blue', 'purple'];
 const BALL_COLOR = 2;           // blue, per the guide (player starts blue)
@@ -160,10 +165,12 @@ resize();
 /* state */
 let state = 'title'; // title | play | pause | over
 let score = 0, best = +(localStorage.getItem('cf_best') || 0);
+let stars = 0;
 let muted = localStorage.getItem('cf_muted') === '1';
-let ball = { y: START_Y, vy: 0, resting: true };
+let ball = { y: START_Y, vy: 0, resting: true, color: BALL_COLOR };
 let camY = 0;              // world y of the screen bottom
-let rings = [];            // {y, rot, dir, passed, index}
+let rings = [];            // {y, rot, dir, rotSpeed, passed, index, star, enterT}
+let orbs = [];             // {y, taken}
 let parts = [];            // particles {x, y, vx, vy, t, life, color, r}
 let trail = [];            // {y, t}
 let time = 0, shake = 0, flashT = 0, lastTs = 0, deadT = 0;
@@ -196,7 +203,13 @@ function noiseBurst(dur, vol){
   src.connect(f); f.connect(g); g.connect(AC.destination); src.start(t);
 }
 const sfxTap = () => tone(520, 0.07, 'sine', 0.08, 760);
-const sfxPass = () => { tone(660, 0.09, 'sine', 0.11); setTimeout(() => tone(990, 0.12, 'sine', 0.11), 70); };
+const sfxPass = (perfect) => {
+  tone(660, 0.09, 'sine', 0.11);
+  setTimeout(() => tone(990, 0.12, 'sine', 0.11), 70);
+  if (perfect) setTimeout(() => tone(1320, 0.16, 'sine', 0.12), 150);
+};
+const sfxOrb = () => { tone(880, 0.08, 'triangle', 0.12, 1320); };
+const sfxStar = () => { tone(1180, 0.1, 'sine', 0.1); setTimeout(() => tone(1560, 0.14, 'sine', 0.1), 60); };
 const sfxDie = () => { noiseBurst(0.3, 0.3); tone(140, 0.35, 'sine', 0.25, 50); };
 function setMuted(m){
   muted = m; localStorage.setItem('cf_muted', m ? '1' : '0');
@@ -219,7 +232,7 @@ function tap(){
   ball.vy = TAP_V;          // guide: tap SETS the upward velocity
   ball.resting = false;
   sfxTap();
-  burst(GW / 2, ball.y - BALL_R, '#35A7FF', 4, 90);
+  burst(GW / 2, ball.y - BALL_R, COLORS[ball.color], 4, 90);
 }
 cv.addEventListener('pointerdown', e => { e.preventDefault(); tap(); });
 window.addEventListener('keydown', e => {
@@ -255,8 +268,12 @@ const QUAD_MINUS = [3, 2, 1, 0]; // purple blue red yellow
 let nextIndex = 1;
 function spawnRing(){
   const i = nextIndex++;
-  rings.push({ y: SPACING * i, rot: Math.random() * TAU,
-    dir: (i % 2 === 1) ? 1 : -1, passed: false, index: i });
+  rings.push({ y: FIRST_Y + (i - 1) * SPACING, rot: Math.random() * TAU,
+    dir: (i % 2 === 1) ? 1 : -1, passed: false, index: i,
+    rotSpeed: TAU / Math.max(4.5, 8 - (i - 1) * 0.2), // 8s turns, ramps to 4.5s
+    star: false, enterT: 0 });
+  // orb between this ring and the next (a third of the way up the climb)
+  orbs.push({ y: FIRST_Y + (i - 1) * SPACING + SPACING * 0.35, taken: false });
 }
 function colorAt(ring, angle){
   let local = (angle - ring.rot) % TAU;
@@ -264,21 +281,31 @@ function colorAt(ring, angle){
   const q = Math.floor(local / (Math.PI / 2)) % 4;
   return (ring.dir === 1 ? QUAD_PLUS : QUAD_MINUS)[q];
 }
-/* guide contact rule: the ball overlaps a ring band only if its color
-   matches every segment it touches. Returns {ok, arc, color} */
+/* Exact contact: the ball overlaps a ring band only if its color matches
+   EVERY segment its circle touches. The ball covers an angular interval
+   around the contact direction; any segment intersecting it counts. */
 function checkContact(){
   for (const ring of rings){
     const d = ball.y - ring.y;
-    if (Math.abs(d) > R_OUT + BALL_R) continue;
-    const lo = ball.y - BALL_R, hi = ball.y + BALL_R;
-    const bands = [];
-    if (hi >= ring.y - R_OUT && lo <= ring.y - R_IN) bands.push({ dir: -Math.PI / 2, arc: 'lower' });
-    if (hi >= ring.y + R_IN && lo <= ring.y + R_OUT) bands.push({ dir: Math.PI / 2, arc: 'upper' });
-    for (const b of bands){
-      const half = Math.asin(clamp(BALL_R / Math.max(Math.abs(d), BALL_R + 1), 0, 1));
-      for (const a of [b.dir, b.dir - half, b.dir + half]){
-        const c = colorAt(ring, a);
-        if (c !== BALL_COLOR) return { ok: false, arc: b.arc, color: c };
+    const ad = Math.abs(d);
+    // radial overlap: ball circle vs annulus
+    if (ad + BALL_R < R_IN || ad - BALL_R > R_OUT) continue;
+    const dir = d < 0 ? -Math.PI / 2 : Math.PI / 2; // lower or upper band
+    const half = Math.asin(clamp(BALL_R / Math.max(ad, BALL_R + 0.5), 0, 1));
+    const arc = d < 0 ? 'lower' : 'upper';
+    // angular interval in the ring's local frame, normalized to [0, TAU)
+    let a0 = dir - half - ring.rot, a1 = dir + half - ring.rot;
+    while (a0 < 0){ a0 += TAU; a1 += TAU; }
+    while (a0 >= TAU){ a0 -= TAU; a1 -= TAU; }
+    const quad = ring.dir === 1 ? QUAD_PLUS : QUAD_MINUS;
+    // every quadrant whose span intersects [a0, a1] (TAU copies for wrap)
+    for (let q = 0; q < 4; q++){
+      for (let k = -1; k <= 1; k++){
+        const s0 = q * Math.PI / 2 + k * TAU, s1 = s0 + Math.PI / 2;
+        if (s1 > a0 && s0 < a1){
+          const c = quad[q];
+          if (c !== ball.color) return { ok: false, arc, color: c };
+        }
       }
     }
   }
@@ -291,13 +318,20 @@ function hide(el){ el.hidden = true; }
 function updateHud(){
   scoreEl.textContent = score;
   bestEl.textContent = best;
+  $('stars').textContent = stars;
+  const col = COLORS[ball.color];
+  const chip = $('youAre'), dot = chip.querySelector('.dot');
+  dot.style.background = col; dot.style.boxShadow = '0 0 8px ' + col;
+  $('youName').textContent = 'YOU ARE ' + NAMES[ball.color].toUpperCase();
+  chip.style.borderColor = col;
+  chip.style.background = col + '22';
 }
 function startGame(){
   audio();
   state = 'play';
-  score = 0; camY = 0; time = 0; shake = 0; deadT = 0;
-  ball = { y: START_Y, vy: 0, resting: true };
-  rings = []; parts = []; trail = [];
+  score = 0; stars = 0; camY = 0; time = 0; shake = 0; deadT = 0;
+  ball = { y: START_Y, vy: 0, resting: true, color: BALL_COLOR };
+  rings = []; orbs = []; parts = []; trail = [];
   nextIndex = 1;
   spawnRing(); spawnRing(); spawnRing(); // guide starts with three
   hide(titleScr); hide(overScr); hide(pauseScr); show(hud); show(hintEl);
@@ -318,17 +352,18 @@ function gameOver(kind, detail){
   state = 'over'; deadT = 0;
   sfxDie();
   shake = 12;
-  burst(GW / 2, ball.y, COLORS[BALL_COLOR], 26, 260);
+  burst(GW / 2, ball.y, COLORS[ball.color], 26, 260);
   burst(GW / 2, ball.y, '#FFFFFF', 10, 160);
   const prevBest = best;
   if (score > best){ best = score; localStorage.setItem('cf_best', String(best)); }
   $('overScore').textContent = score;
   $('overBest').textContent = best;
   $('overRings').textContent = score;
+  $('overStars').textContent = stars;
   if (kind === 'color'){
     $('overTitle').textContent = 'COLOR LOST';
     $('overMsg').textContent = 'The ' + detail.arc + ' arc was ' + NAMES[detail.color] +
-      '. Pass through blue only.';
+      '. Pass through ' + NAMES[ball.color] + ' only.';
   } else {
     $('overTitle').textContent = 'YOU FELL';
     $('overMsg').textContent = 'You fell below the screen. Keep tapping to stay up.';
@@ -347,7 +382,7 @@ function update(dt){
   time += dt;
   if (flashT > 0){ flashT -= dt; if (flashT <= 0) flashEl.classList.remove('show'); }
   if (shake > 0) shake = Math.max(0, shake - dt * 24);
-  for (const r of rings) r.rot += r.dir * ROT * dt; // rings always spin
+  for (const r of rings) r.rot += r.dir * r.rotSpeed * dt; // rings always spin
   updateParts(dt);
   if (state !== 'play') return;
   // physics (guide: gravity pulls down, tap sets vy)
@@ -369,12 +404,42 @@ function update(dt){
   const top = rings.length ? rings[rings.length - 1].y : 0;
   if (top < ball.y + 2 * SPACING) spawnRing();
   rings = rings.filter(r => r.y > camY - 400);
+  orbs = orbs.filter(o => o.y > camY - 200);
+  // orbs: switch the ball to a new color
+  for (const o of orbs){
+    if (!o.taken && Math.abs(ball.y - o.y) < 28){
+      o.taken = true;
+      let nc;
+      do { nc = Math.floor(Math.random() * 4); } while (nc === ball.color);
+      ball.color = nc;
+      sfxOrb();
+      showFlash(NAMES[nc].toUpperCase() + '!');
+      burst(GW / 2, o.y, COLORS[nc], 14, 160);
+      updateHud();
+    }
+  }
+  // stars: one at each ring's heart
+  for (const r of rings){
+    if (!r.star && Math.abs(ball.y - r.y) < 26){
+      r.star = true; stars++;
+      sfxStar();
+      burst(GW / 2, r.y, '#FFD93D', 10, 130);
+      updateHud();
+    }
+  }
   // score (guide: print("score") TODO — implemented as rings passed)
   for (const r of rings){
+    // track entry into the lower band for the PERFECT timer
+    const ad = Math.abs(ball.y - r.y);
+    if (r.enterT === 0 && ball.y < r.y && ball.vy > 0 &&
+        ad + BALL_R >= R_IN && ad - BALL_R <= R_OUT) r.enterT = time;
     if (!r.passed && ball.y > r.y){
-      r.passed = true; score++;
-      sfxPass(); showFlash('+' + 1);
-      burst(GW / 2, r.y, COLORS[BALL_COLOR], 10, 140);
+      r.passed = true;
+      const perfect = r.enterT > 0 && (time - r.enterT) * 1000 < PERFECT_MS;
+      score += perfect ? 2 : 1;
+      sfxPass(perfect);
+      showFlash(perfect ? 'PERFECT' : '+1');
+      burst(GW / 2, r.y, COLORS[ball.color], 10, 140);
       updateHud();
     }
   }
@@ -396,6 +461,17 @@ const STARS = [];
 for (let i = 0; i < 40; i++){
   STARS.push({ x: Math.random() * GW, y: Math.random() * 900,
     r: 0.6 + Math.random() * 1.3, a: 0.15 + Math.random() * 0.4 });
+}
+function drawStar(x, y, r, color){
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++){
+    const ang = i * Math.PI / 4 - Math.PI / 2;
+    const rad = i % 2 === 0 ? r : r * 0.38;
+    const px = x + Math.cos(ang) * rad, py = y + Math.sin(ang) * rad;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath(); ctx.fill();
 }
 function render(){
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -443,18 +519,42 @@ function render(){
       ctx.stroke();
     }
     ctx.shadowBlur = 0;
-    // center star (decorative guide-star, marks the ring heart)
-    ctx.fillStyle = 'rgba(255,217,61,.85)';
-    ctx.beginPath();
-    ctx.arc(GW / 2, cy, 4, 0, TAU); ctx.fill();
+    // star at the ring's heart (collectible)
+    if (!ring.star){
+      ctx.save();
+      ctx.shadowColor = '#FFD93D'; ctx.shadowBlur = 12;
+      drawStar(GW / 2, cy, 11, '#FFD93D');
+      ctx.restore();
+    }
+  }
+  // orbs: 4-color diamond, slowly rotating
+  for (const o of orbs){
+    if (o.taken) continue;
+    const oy = sy(o.y);
+    if (oy < -30 || oy > LH + 30) continue;
+    const s = 15;
+    ctx.save();
+    ctx.translate(GW / 2, oy); ctx.rotate(time * 0.9);
+    ctx.shadowColor = '#FFFFFF'; ctx.shadowBlur = 10;
+    for (let q = 0; q < 4; q++){
+      ctx.fillStyle = COLORS[q];
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(q * Math.PI / 2) * s, Math.sin(q * Math.PI / 2) * s);
+      ctx.lineTo(Math.cos((q + 1) * Math.PI / 2) * s, Math.sin((q + 1) * Math.PI / 2) * s);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
   }
   // trail
   for (const t of trail){
     const a = Math.max(0, 0.35 - t.t * 0.9);
     if (a <= 0) continue;
-    ctx.fillStyle = 'rgba(53,167,255,' + a.toFixed(2) + ')';
-    ctx.beginPath(); ctx.arc(GW / 2, sy(t.y), 7, 0, TAU); ctx.fill();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = COLORS[ball.color];
+    ctx.beginPath(); ctx.arc(GW / 2, sy(t.y), 4, 0, TAU); ctx.fill();
   }
+  ctx.globalAlpha = 1;
   // particles
   for (const p of parts){
     const a = 1 - p.t / p.life;
@@ -467,12 +567,12 @@ function render(){
   if (state !== 'over' || deadT < 0.25){
     const by = sy(ball.y);
     ctx.save();
-    ctx.shadowColor = COLORS[BALL_COLOR]; ctx.shadowBlur = 22;
-    ctx.fillStyle = COLORS[BALL_COLOR];
-    ctx.beginPath(); ctx.arc(GW / 2, by, BALL_DRAW, 0, TAU); ctx.fill();
+    ctx.shadowColor = COLORS[ball.color]; ctx.shadowBlur = 14;
+    ctx.fillStyle = COLORS[ball.color];
+    ctx.beginPath(); ctx.arc(GW / 2, by, BALL_R, 0, TAU); ctx.fill();
     ctx.restore();
     ctx.fillStyle = 'rgba(255,255,255,.85)';
-    ctx.beginPath(); ctx.arc(GW / 2 - 12, by - 13, 9, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(GW / 2 - 5, by - 5, 4, 0, TAU); ctx.fill();
   }
   ctx.restore();
   // vignette
@@ -506,6 +606,6 @@ $('titleBest').textContent = best > 0 ? 'BEST ' + best : '';
 spawnRing(); spawnRing(); spawnRing(); // lively title backdrop
 requestAnimationFrame(frame);
 </script>
-<!-- chroma-fall-rebuild-v1 -->
+<!-- chroma-fall-rebuild-v2 -->
 </body>
 </html>
