@@ -9,7 +9,7 @@ Working down in order. Done: 01-17.
 - 03 Dune Rider (Tiny Wings) — near-miss multiplier, aurora
 - 04 Helix Descend (Helix Jump) — squash-and-stretch ball feel
 - 05 Slice Storm (Fruit Ninja) — FRENZY slow-mo, golden fruit
-- 06 Chroma Fall (Color Switch) — DONE 2026-11-15 — orb color-switch per the reference, retuned physics, stars
+- 06 Chroma Fall (Color Switch) — DONE 2026-11-15 — rebuilt from scratch per the Kodeco guide: blue ball, 4-color rings, 8s turns, ledge start
 
 ## Up Next
 - 07 Neon Keys (Piano Tiles) — DONE 2026-11-02 — tiles accelerate, hold-notes for chords
