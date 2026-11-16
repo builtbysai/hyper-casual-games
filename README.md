@@ -21,6 +21,16 @@ Built by Hans + Bug. Web-first, one-touch, portrait.
 | 05 | Slice Storm | swipe fruit slicer, FRENZY slow-mo, golden fruit | live |
 | 06 | Chroma Fall | color-match faller, tap to flap | live |
 | 07 | Neon Keys | piano tiles, accelerating, hold-note chords | live |
+| 08 | Orbit | gravity wells bend your flight path, slingshot curves | live |
+| 09 | Skyhook | grappling hook between platforms, pendulum momentum swings | live |
+| 10 | Neon Serpent | snake splits in two, steer both at once, mirrored steering | live |
+| 11 | Bloom | absorb matching colors, your complement kills you | live |
+| 12 | Territory | your trail decays, reclaim it before it fades | live |
+| 13 | Neon Crossing | time dilates near traffic | live |
+| 14 | Rooftop Rush | endless procedural tower, jump + air dash, flag checkpoints | live |
+| 15 | Skyline Sprint | auto-run, tap to jump, double-tap to dash, 5 hand-designed levels | live |
+| 16 | Hyper Tunnel | first-person warp flyer, thread the hole, PERFECT center for a surge | live |
+| 17 | Bomberman | chain-detonation combo banks flame range, blast preview, waves | live |
 
 ## Reference
-- `docs/Crushing_Hyper_Casual_v1.3.pdf` — the playbook.
+- `docs/Crushing_Hyper_Casual_-_v1.3.pdf` — the playbook.
